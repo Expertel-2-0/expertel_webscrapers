@@ -70,19 +70,23 @@ class ScraperJobService:
 
     def get_available_scraper_jobs(self, include_null_available_at: bool = True) -> List[ScraperJob]:
         """
-        Get and claim scraper jobs for execution, limited to a single scraper_config.
+        Get and claim scraper jobs for execution.
+
+        Strategy:
+        - daily_usage: ALL available jobs regardless of scraper_config (avoids backlog with 30-min cycles)
+        - monthly_reports / pdf_invoice: jobs from a single scraper_config (existing behavior)
 
         This method:
-        1. Finds the first PENDING job
-        2. Gets all PENDING jobs with the same scraper_config
-        3. Marks them as IN_PROGRESS atomically
+        1. Fetches all available daily_usage jobs
+        2. Fetches all monthly/pdf jobs for the first available scraper_config
+        3. Atomically marks the combined set as IN_PROGRESS
         4. Returns those jobs (main.py will mark them as RUNNING when executing)
 
         Args:
             include_null_available_at: Whether to include jobs with available_at=NULL for compatibility
 
         Returns:
-            List of ScraperJob Pydantic entities for execution (from single scraper_config)
+            List of ScraperJob Pydantic entities for execution
         """
         current_time = timezone.now()
 
@@ -102,47 +106,54 @@ class ScraperJobService:
             default=Value(99),
         )
 
-        # 1. Find the first available PENDING job
-        first_job = (
-            DjangoScraperJob.objects.filter(query_filter)
+        # --- Part 1: All available daily_usage jobs (cross-config) ---
+        daily_usage_ids = list(
+            DjangoScraperJob.objects.filter(
+                query_filter,
+                type=ScraperType.DAILY_USAGE,
+            ).values_list("id", flat=True)
+        )
+
+        # --- Part 2: monthly_reports / pdf_invoice from a single scraper_config ---
+        non_daily_filter = query_filter & ~Q(type=ScraperType.DAILY_USAGE)
+
+        first_non_daily_job = (
+            DjangoScraperJob.objects.filter(non_daily_filter)
             .annotate(type_order=type_order)
             .order_by("scraper_config__credential_id", "scraper_config__account_id", "type_order", "available_at")
             .first()
         )
 
-        if not first_job:
+        non_daily_ids: List[int] = []
+        if first_non_daily_job:
+            non_daily_ids = list(
+                DjangoScraperJob.objects.filter(
+                    non_daily_filter,
+                    scraper_config_id=first_non_daily_job.scraper_config_id,
+                ).values_list("id", flat=True)
+            )
+
+        # --- Combine both sets ---
+        all_target_ids = list(set(daily_usage_ids) | set(non_daily_ids))
+
+        if not all_target_ids:
             return []
 
-        target_scraper_config_id = first_job.scraper_config_id
-
-        # 2. Get the specific IDs we want to claim (must be done before UPDATE)
-        # This ensures we only process jobs WE claimed, not jobs from failed previous runs
-        target_job_ids = list(
-            DjangoScraperJob.objects.filter(
-                query_filter,
-                scraper_config_id=target_scraper_config_id,
-            ).values_list("id", flat=True)
-        )
-
-        if not target_job_ids:
-            return []
-
-        # 3. Atomically mark these specific PENDING jobs as IN_PROGRESS
-        # The status=PENDING filter prevents race conditions - only PENDING jobs are updated
+        # Atomically mark the combined set as IN_PROGRESS
+        # status=PENDING filter prevents race conditions
         updated_count = DjangoScraperJob.objects.filter(
-            id__in=target_job_ids,
-            status=ScraperJobStatus.PENDING,  # Extra safety: only update if still PENDING
+            id__in=all_target_ids,
+            status=ScraperJobStatus.PENDING,
         ).update(status=ScraperJobStatus.IN_PROGRESS)
 
         if updated_count == 0:
             # Another instance already claimed these jobs
             return []
 
-        # 4. Fetch only the jobs we successfully claimed
-        # Use the specific IDs AND verify they are IN_PROGRESS (our update succeeded)
+        # Fetch only the jobs we successfully claimed
         django_jobs = (
             DjangoScraperJob.objects.filter(
-                id__in=target_job_ids,
+                id__in=all_target_ids,
                 status=ScraperJobStatus.IN_PROGRESS,
             )
             .annotate(type_order=type_order)
@@ -382,38 +393,54 @@ class ScraperJobService:
         else:
             # Job failed - check if it can retry
             if django_job.retry_count < django_job.max_retries:
-                # Can retry - calculate next available_at based on scraper type
+                # Increment retry count first
                 django_job.retry_count += 1
-                django_job.status = ScraperJobStatus.PENDING
 
-                # Get scraper type and calculate appropriate delay
-                try:
-                    scraper_type = ScraperType(django_job.type)
-                except ValueError:
-                    # Safe fallback if type is not recognized
-                    scraper_type = ScraperType.MONTHLY_REPORTS
-                    self._append_log(
-                        django_job,
-                        f"WARNING: Unknown scraper type '{django_job.type}', using default delay",
+                if django_job.retry_count >= django_job.max_retries:
+                    # Reached max retries - mark as final ERROR immediately (no extra pending run)
+                    django_job.status = ScraperJobStatus.ERROR
+                    django_job.completed_at = current_time
+
+                    log_message = (
+                        f"ERROR FINAL (max retries {django_job.max_retries} reached): "
+                        f"{error_message or 'Unknown error'}"
                     )
+                    self._append_log(django_job, log_message)
 
-                django_job.available_at = self._get_retry_available_at(scraper_type)
+                    result["final_status"] = ScraperJobStatus.ERROR
+                    result["message"] = f"Max retries reached ({django_job.max_retries}). Job marked as ERROR."
 
-                log_message = (
-                    f"RETRY SCHEDULED ({django_job.retry_count}/{django_job.max_retries}): "
-                    f"{error_message or 'Unknown error'}. "
-                    f"Next attempt: {django_job.available_at.strftime('%Y-%m-%d %H:%M:%S')}"
-                )
-                self._append_log(django_job, log_message)
+                else:
+                    # More retries available - calculate next available_at based on scraper type
+                    django_job.status = ScraperJobStatus.PENDING
 
-                result["final_status"] = ScraperJobStatus.PENDING
-                result["retry_scheduled"] = True
-                result["retry_count"] = django_job.retry_count
-                result["next_available_at"] = django_job.available_at
-                result["message"] = f"Retry {django_job.retry_count}/{django_job.max_retries} scheduled"
+                    try:
+                        scraper_type = ScraperType(django_job.type)
+                    except ValueError:
+                        # Safe fallback if type is not recognized
+                        scraper_type = ScraperType.MONTHLY_REPORTS
+                        self._append_log(
+                            django_job,
+                            f"WARNING: Unknown scraper type '{django_job.type}', using default delay",
+                        )
+
+                    django_job.available_at = self._get_retry_available_at(scraper_type)
+
+                    log_message = (
+                        f"RETRY SCHEDULED ({django_job.retry_count}/{django_job.max_retries}): "
+                        f"{error_message or 'Unknown error'}. "
+                        f"Next attempt: {django_job.available_at.strftime('%Y-%m-%d %H:%M:%S')}"
+                    )
+                    self._append_log(django_job, log_message)
+
+                    result["final_status"] = ScraperJobStatus.PENDING
+                    result["retry_scheduled"] = True
+                    result["retry_count"] = django_job.retry_count
+                    result["next_available_at"] = django_job.available_at
+                    result["message"] = f"Retry {django_job.retry_count}/{django_job.max_retries} scheduled"
 
             else:
-                # Max retries reached - mark as final ERROR
+                # Already at max retries (safety net for jobs in unexpected state)
                 django_job.status = ScraperJobStatus.ERROR
                 django_job.completed_at = current_time
 
