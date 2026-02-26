@@ -712,28 +712,34 @@ class TMobileMonthlyReportsScraperStrategy(MonthlyReportsScraperStrategy):
 
     def _setup_billing_template_filters(self, billing_cycle: BillingCycle, account_number: str) -> bool:
         """Configura los filtros de Billing templates: billing period y cuenta."""
-        try:
-            self.logger.info("Configurando filtros de Billing templates...")
+        self.logger.info("Configurando filtros de Billing templates...")
 
-            # 1. Seleccionar billing period
-            if not self._select_billing_period(billing_cycle):
-                self.logger.error("No se pudo seleccionar billing period")
-                return False
+        # 1. Seleccionar billing period
+        if not self._select_billing_period(billing_cycle):
+            expected_period = billing_cycle.end_date.strftime("%B %Y")
+            error_msg = (
+                f"FATAL: Billing period '{expected_period}' no encontrado en el dropdown de T-Mobile. "
+                "No se puede continuar, los reportes generados corresponderían a un periodo incorrecto."
+            )
+            self.logger.error(error_msg)
+            self._reset_to_main_screen()
+            raise RuntimeError(error_msg)
 
-            time.sleep(1)
+        time.sleep(1)
 
-            # 2. Seleccionar cuenta en Hierarchy Level
-            if not self._select_hierarchy_level(account_number):
-                self.logger.error(f"No se pudo seleccionar cuenta {account_number}")
-                return False
+        # 2. Seleccionar cuenta en Hierarchy Level
+        if not self._select_hierarchy_level(account_number):
+            error_msg = (
+                f"FATAL: Cuenta '{account_number}' no encontrada en Hierarchy Level de T-Mobile. "
+                "No se puede continuar, los reportes generados corresponderían a una cuenta incorrecta."
+            )
+            self.logger.error(error_msg)
+            self._reset_to_main_screen()
+            raise RuntimeError(error_msg)
 
-            time.sleep(1)
-            self.logger.info("Filtros de Billing templates configurados")
-            return True
-
-        except Exception as e:
-            self.logger.error(f"Error configurando filtros: {str(e)}")
-            return False
+        time.sleep(1)
+        self.logger.info("Filtros de Billing templates configurados")
+        return True
 
     def _generate_billing_template_report(
         self, report_title: str, accordion_title: str, billing_cycle: BillingCycle, account_number: str
@@ -762,6 +768,8 @@ class TMobileMonthlyReportsScraperStrategy(MonthlyReportsScraperStrategy):
             self.logger.info(f"<<< Reporte '{report_title}' generado exitosamente\n")
             return True
 
+        except RuntimeError:
+            raise
         except Exception as e:
             self.logger.error(f"Error generando reporte '{report_title}': {str(e)}")
             return False
@@ -881,11 +889,6 @@ class TMobileMonthlyReportsScraperStrategy(MonthlyReportsScraperStrategy):
 
     # ========== METODOS PARA DESCARGA DE REPORTES ==========
 
-    def _get_today_date_formatted(self) -> str:
-        """Retorna la fecha de hoy en formato 'Jan 1, 2026' para comparar con la UI."""
-        today = datetime.now()
-        return today.strftime("%b %-d, %Y") if os.name != "nt" else today.strftime("%b %#d, %Y")
-
     def _find_completed_reports_for_today(self, account_number: str) -> List[Dict[str, Any]]:
         """Encuentra los reportes completados con fecha de hoy en My Reports.
 
@@ -907,9 +910,7 @@ class TMobileMonthlyReportsScraperStrategy(MonthlyReportsScraperStrategy):
             # Obtener todos los rows de reportes
             report_rows = self.browser_wrapper.page.query_selector_all("mat-expansion-panel.history-content")
 
-            today_short = datetime.now().strftime("%b")  # Ej: "Jan"
-            today_day = datetime.now().day
-            today_year = datetime.now().strftime("%Y")
+            today_str = datetime.now().strftime("%b %#d, %Y") if os.name == "nt" else datetime.now().strftime("%b %-d, %Y")
 
             for idx, row in enumerate(report_rows):
                 # Si ya tenemos los 5 tipos, salir
@@ -942,7 +943,7 @@ class TMobileMonthlyReportsScraperStrategy(MonthlyReportsScraperStrategy):
                     status = status_elem.inner_text().strip() if status_elem else ""
 
                     # Verificar si es de hoy y esta completado
-                    is_today = today_short in run_date and str(today_day) in run_date and today_year in run_date
+                    is_today = today_str in run_date
                     is_completed = "Completed" in status
                     has_account = account_number in detail_text
 
@@ -1192,13 +1193,15 @@ class TMobileMonthlyReportsScraperStrategy(MonthlyReportsScraperStrategy):
 
             return downloaded_files
 
+        except RuntimeError:
+            raise
         except Exception as e:
-            self.logger.error(f"Error en descarga de archivos: {str(e)}")
+            self.logger.error(f"[EXCEPTION] Error en descarga de archivos: {str(e)}")
             try:
                 self._reset_to_main_screen()
             except:
                 pass
-            return downloaded_files
+            raise
 
     def _reset_to_main_screen(self):
         """Reset a la pantalla inicial de T-Mobile dashboard."""
