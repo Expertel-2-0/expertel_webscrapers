@@ -1,7 +1,8 @@
 import logging
 import os
 import time
-from typing import Any, List, Optional
+from datetime import datetime
+from typing import Any, Dict, List, Optional
 
 from web_scrapers.domain.entities.browser_wrapper import BrowserWrapper
 from web_scrapers.domain.entities.models import BillingCycle, ScraperConfig
@@ -22,13 +23,16 @@ class TMobileDailyUsageScraperStrategy(DailyUsageScraperStrategy):
     2. Buscar cuenta por numero en el input de filtro
     3. Click en el row de la cuenta (unico resultado)
     4. Click en tab "Usage"
-    5. Seleccionar "All Usage" en el dropdown
-    6. Click en Download para descargar CSV
+    5. Extraer pool_used desde response de britebill (capturada en background)
+    6. Seleccionar "All Usage" en el dropdown
+    7. Click en Download para descargar CSV
     """
 
     def __init__(self, browser_wrapper: BrowserWrapper, job_id: int):
         super().__init__(browser_wrapper, job_id=job_id)
         self.logger = logging.getLogger(self.__class__.__name__)
+        self._captured_britebill_response: Optional[Dict] = None
+        self._britebill_callback = None
 
     def _find_files_section(self, config: ScraperConfig, billing_cycle: BillingCycle) -> Optional[Any]:
         """Navega a Billing y encuentra la cuenta."""
@@ -50,7 +54,10 @@ class TMobileDailyUsageScraperStrategy(DailyUsageScraperStrategy):
                 self.logger.error(f"No se pudo buscar la cuenta {account_number}")
                 return None
 
-            # 3. Click en el row de la cuenta
+            # 3. Registrar listener para capturar response de britebill ANTES del click
+            self._setup_britebill_listener()
+
+            # 4. Click en el row de la cuenta (esto dispara la peticion a britebill)
             if not self._click_account_row():
                 self.logger.error("No se pudo hacer click en el row de la cuenta")
                 return None
@@ -162,8 +169,9 @@ class TMobileDailyUsageScraperStrategy(DailyUsageScraperStrategy):
 
         Flujo:
         1. Click en tab "Usage"
-        2. Seleccionar "All Usage" en el dropdown
-        3. Click en Download
+        2. Extraer pool_used desde response britebill (ya capturada para este punto)
+        3. Seleccionar "All Usage" en el dropdown
+        4. Click en Download
         """
         downloaded_files = []
 
@@ -181,13 +189,17 @@ class TMobileDailyUsageScraperStrategy(DailyUsageScraperStrategy):
                 self.logger.error("No se pudo hacer click en tab Usage")
                 return downloaded_files
 
-            # 2. Seleccionar "All Usage" en el dropdown
+            # 2. Extraer pool_used - para este punto la response de britebill ya llego
+            #    (el click en Usage tab le dio tiempo al event loop de Playwright para procesarla)
+            self._extract_pool_used_from_response(billing_cycle)
+
+            # 3. Seleccionar "All Usage" en el dropdown
             if not self._select_all_usage():
                 self.logger.warning("No se pudo seleccionar 'All Usage', continuando...")
 
             time.sleep(2)
 
-            # 3. Click en Download
+            # 4. Click en Download
             file_path = self._click_download()
             if file_path:
                 actual_filename = os.path.basename(file_path)
@@ -262,15 +274,15 @@ class TMobileDailyUsageScraperStrategy(DailyUsageScraperStrategy):
         try:
             self.logger.info("Seleccionando 'All Usage' en el dropdown...")
 
-            # Dropdown de tipo de usage
-            usage_dropdown_xpath = '//*[@id="usage-dropdown"]/div/mat-form-field/div/div[1]'
+            # Apuntar al mat-select directamente, no al form-field overlay
+            mat_select_xpath = '//*[@id="usage-dropdown"]//mat-select'
 
-            if not self.browser_wrapper.is_element_visible(usage_dropdown_xpath, timeout=5000):
-                self.logger.error("Dropdown de usage no encontrado")
+            if not self.browser_wrapper.is_element_visible(mat_select_xpath, timeout=5000):
+                self.logger.error("Dropdown mat-select de usage no encontrado")
                 return False
 
             # Click para abrir el dropdown
-            self.browser_wrapper.click_element(usage_dropdown_xpath)
+            self.browser_wrapper.click_element(mat_select_xpath)
             time.sleep(2)
 
             # Buscar la opcion "All usage" en el panel
@@ -323,6 +335,128 @@ class TMobileDailyUsageScraperStrategy(DailyUsageScraperStrategy):
         except Exception as e:
             self.logger.error(f"Error haciendo click en Download: {str(e)}")
             return None
+
+    # ==================== BRITEBILL RESPONSE INTERCEPTION ====================
+
+    def _setup_britebill_listener(self):
+        """Registra un listener para capturar la response de britebill/documents/query.
+
+        El callback de Playwright se ejecuta dentro del event loop de Playwright,
+        NO durante time.sleep(). Se procesa cuando se hace la siguiente llamada
+        a Playwright (click, is_element_visible, etc).
+        """
+        try:
+            self._captured_britebill_response = None
+            page = self.browser_wrapper.page
+
+            def _on_response(response):
+                if "britebill/documents/query" in response.url and response.status == 200:
+                    try:
+                        body = response.json()
+                        self._captured_britebill_response = body
+                        self.logger.info("Britebill documents/query response capturada")
+                    except Exception as e:
+                        self.logger.warning(f"Error parseando response de britebill: {str(e)}")
+
+            self._britebill_callback = _on_response
+            page.on("response", _on_response)
+            self.logger.info("Listener de britebill/documents/query registrado")
+
+        except Exception as e:
+            self.logger.warning(f"Error registrando listener de britebill: {str(e)}")
+
+    def _remove_britebill_listener(self):
+        """Remueve el listener de britebill para no capturar requests posteriores."""
+        try:
+            if self._britebill_callback:
+                self.browser_wrapper.page.remove_listener("response", self._britebill_callback)
+                self._britebill_callback = None
+                self.logger.info("Listener de britebill removido")
+        except Exception as e:
+            self.logger.warning(f"Error removiendo listener de britebill: {str(e)}")
+
+    def _extract_pool_used_from_response(self, billing_cycle: BillingCycle):
+        """Extrae pool_used desde recentUsageHistory de la response capturada.
+
+        IMPORTANTE: Llamar despues de al menos una interaccion con Playwright
+        (click, is_element_visible, etc.) para que el event loop haya procesado
+        el callback del listener.
+        """
+        try:
+            # Remover listener inmediatamente - ya no necesitamos capturar mas responses
+            self._remove_britebill_listener()
+
+            response_data = self._captured_britebill_response
+
+            if not response_data:
+                print("[T-MOBILE POOL] WARNING: No se capturo response de britebill, pool_used quedara en 0")
+                self.logger.warning("No se capturo response de britebill, pool_used quedara en 0")
+                return
+
+            print("[T-MOBILE POOL] Response capturada, extrayendo recentUsageHistory...")
+
+            # Extraer recentUsageHistory
+            presentation_hints = response_data.get("presentationHints")
+            if not presentation_hints:
+                print(f"[T-MOBILE POOL] WARNING: presentationHints no encontrado. Keys: {list(response_data.keys())}")
+                return
+
+            recent_usage = presentation_hints.get("recentUsageHistory", [])
+            if not recent_usage:
+                print(f"[T-MOBILE POOL] WARNING: recentUsageHistory vacio. Keys: {list(presentation_hints.keys())}")
+                return
+
+            print(f"[T-MOBILE POOL] recentUsageHistory tiene {len(recent_usage)} entradas")
+            for entry in recent_usage:
+                print(f"  -> {entry}")
+
+            # Obtener año y mes del end_date del billing cycle
+            end_date = billing_cycle.end_date
+            if isinstance(end_date, str):
+                end_date = datetime.strptime(end_date, "%Y-%m-%d").date()
+
+            target_year = end_date.year
+            target_month = end_date.month
+            print(f"[T-MOBILE POOL] Buscando match: year={target_year}, month={target_month} (end_date={billing_cycle.end_date})")
+
+            # Buscar entry que coincida en año y mes
+            matched_entry = None
+            for entry in recent_usage:
+                entry_date_str = entry.get("date", "")
+                if not entry_date_str:
+                    continue
+                try:
+                    entry_date = datetime.strptime(entry_date_str, "%Y-%m-%d").date()
+                    if entry_date.year == target_year and entry_date.month == target_month:
+                        matched_entry = entry
+                        break
+                except ValueError:
+                    continue
+
+            if not matched_entry:
+                print(f"[T-MOBILE POOL] WARNING: No match para {target_year}-{target_month:02d}")
+                return
+
+            # Extraer data (en GB) y convertir a bytes (base 1024)
+            data_gb_str = matched_entry.get("data", "0")
+            data_gb = float(data_gb_str)
+            pool_used_bytes = int(data_gb * 1024 * 1024 * 1024)
+
+            self.pool_used = pool_used_bytes
+
+            print(f"\n{'='*60}")
+            print(f"T-MOBILE POOL DATA (from britebill response)")
+            print(f"  recentUsageHistory match: {matched_entry}")
+            print(f"  data: {data_gb} GB")
+            print(f"  pool_used: {pool_used_bytes} bytes")
+            print(f"  pool_size: 0 bytes")
+            print(f"{'='*60}\n")
+
+        except Exception as e:
+            print(f"[T-MOBILE POOL] ERROR: {str(e)}")
+            self.logger.error(f"Error extrayendo pool_used de britebill response: {str(e)}")
+
+    # ==================== RESET ====================
 
     def _reset_to_main_screen(self):
         """Reset a la pantalla inicial de T-Mobile dashboard."""

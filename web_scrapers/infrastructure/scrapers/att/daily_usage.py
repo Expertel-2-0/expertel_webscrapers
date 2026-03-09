@@ -67,9 +67,21 @@ class ATTDailyUsageScraperStrategy(DailyUsageScraperStrategy):
                         return {"section": "daily_usage", "ready_for_download": True}
                     else:
                         self.logger.warning(f"Tabs text does not contain 'Unbilled usage': {tabs_text}")
+                        # Fallback: intentar click directo en el tab de Unbilled usage
+                        unbilled_tab_fallback_xpath = '//*[@id="navTabItem5-2"]'
+                        if self.browser_wrapper.is_element_visible(unbilled_tab_fallback_xpath, timeout=5000):
+                            self.logger.info("Fallback: Unbilled usage tab found by direct ID, proceeding")
+                            return {"section": "daily_usage", "ready_for_download": True}
+                        self.logger.warning("Fallback failed: Unbilled usage tab not found by direct ID either")
                         continue
                 else:
                     self.logger.warning("Tabs list not found")
+                    # Fallback: intentar click directo en el tab de Unbilled usage
+                    unbilled_tab_fallback_xpath = '//*[@id="navTabItem5-2"]'
+                    if self.browser_wrapper.is_element_visible(unbilled_tab_fallback_xpath, timeout=5000):
+                        self.logger.info("Fallback: Unbilled usage tab found by direct ID, proceeding")
+                        return {"section": "daily_usage", "ready_for_download": True}
+                    self.logger.warning("Fallback failed: Unbilled usage tab not found by direct ID either")
                     continue
 
             except Exception as e:
