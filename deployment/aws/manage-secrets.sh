@@ -1,32 +1,50 @@
 #!/bin/bash
-# =============================================================================
-# ExpertelIQ2 Scraper - Secrets Management Script
-# =============================================================================
-# Manages secrets in AWS SSM Parameter Store
-# Usage: ./manage-secrets.sh <command> <environment>
-# Commands: setup, get, set, list, validate
-# =============================================================================
-
 set -e
 
-# Colors
+# ExpertelIQ2 Scraper - AWS Secrets Management Script
+# Manages secrets in AWS Systems Manager Parameter Store
+
+# Colors for output
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m'
 
-APP_NAME="experteliq2-scraper"
-REGION="us-east-2"
+# Default configuration
+DEFAULT_REGION="us-east-2"
+DEFAULT_APP_NAME="experteliq2-scraper"
 
 # -----------------------------------------------------------------------------
-# FUNCTIONS
+# SECRET REGISTRY (single source of truth)
+# -----------------------------------------------------------------------------
+# Format: "path|type|required|description|prompt"
+# type: S = SecureString, P = Plain (String)
+# required: R = Required, O = Optional
+
+SECRETS_REGISTRY=(
+    "database/password|S|R|PostgreSQL password|PostgreSQL Password"
+    "backend-api/key|S|R|Backend API key|Backend API Key"
+    "cryptography/key|S|R|Cryptography key|Cryptography Key"
+    "azure/client-id|P|R|Azure AD client ID|Azure Client ID"
+    "azure/tenant-id|P|R|Azure AD tenant ID|Azure Tenant ID"
+    "azure/client-secret|S|R|Azure AD client secret|Azure Client Secret"
+    "novnc/password|S|R|noVNC access password|noVNC Password"
+    "anthropic/api-key|S|O|Anthropic API key|Anthropic API Key"
+    "email/host-user|P|O|SMTP host user|Email SMTP Host User"
+    "email/host-password|S|O|SMTP host password|Email SMTP Host Password"
+    "slack/webhook-url|S|O|Slack webhook URL|Slack Webhook URL"
+    "teams/webhook-url|S|O|Teams webhook URL|Microsoft Teams Webhook URL"
+)
+
+# -----------------------------------------------------------------------------
+# HELPER FUNCTIONS
 # -----------------------------------------------------------------------------
 
 print_header() {
-    echo -e "${BLUE}========================================${NC}"
-    echo -e "${BLUE}$1${NC}"
-    echo -e "${BLUE}========================================${NC}"
+    echo -e "${BLUE}==========================================================${NC}"
+    echo -e "${BLUE}  $1${NC}"
+    echo -e "${BLUE}==========================================================${NC}"
 }
 
 print_success() {
@@ -41,331 +59,451 @@ print_warning() {
     echo -e "${YELLOW}! $1${NC}"
 }
 
-check_aws_cli() {
-    if ! command -v aws &> /dev/null; then
-        print_error "AWS CLI is not installed"
-        echo "Install from: https://aws.amazon.com/cli/"
-        exit 1
-    fi
-
-    if ! aws sts get-caller-identity &> /dev/null; then
-        print_error "AWS credentials not configured"
-        echo "Run: aws configure"
-        exit 1
-    fi
+show_help() {
+    echo -e "${BLUE}ExpertelIQ2 Scraper - AWS Secrets Management${NC}"
+    echo ""
+    echo "Usage: $0 <command> [options]"
+    echo ""
+    echo "Commands:"
+    echo "  setup <env>     - Initial setup of ALL secrets for environment"
+    echo "  update <env>    - Update ALL existing secrets for environment"
+    echo "  set <env> <key> - Set a single specific secret (interactive prompt)"
+    echo "  list <env>      - List all secrets for environment"
+    echo "  validate <env>  - Validate required secrets exist"
+    echo "  get <env> <key> - Get specific secret value"
+    echo "  delete <env>    - Delete all secrets for environment (DANGEROUS!)"
+    echo ""
+    echo "Options:"
+    echo "  --region <region>    AWS region (default: $DEFAULT_REGION)"
+    echo "  --app-name <name>    Application name (default: $DEFAULT_APP_NAME)"
+    echo ""
+    echo "Environments:"
+    echo "  dev, qa, prod (or any custom name)"
+    echo ""
+    echo "SSM Parameters Created:"
+    echo "  REQUIRED:"
+    for entry in "${SECRETS_REGISTRY[@]}"; do
+        IFS='|' read -r path _ req description _ <<< "$entry"
+        if [ "$req" = "R" ]; then
+            printf "    /{app}/{env}/%-25s - %s\n" "$path" "$description"
+        fi
+    done
+    echo ""
+    echo "  OPTIONAL:"
+    for entry in "${SECRETS_REGISTRY[@]}"; do
+        IFS='|' read -r path _ req description _ <<< "$entry"
+        if [ "$req" = "O" ]; then
+            printf "    /{app}/{env}/%-25s - %s\n" "$path" "$description"
+        fi
+    done
+    echo ""
+    echo "Valid secret keys:"
+    local keys=""
+    for entry in "${SECRETS_REGISTRY[@]}"; do
+        IFS='|' read -r path _ _ _ _ <<< "$entry"
+        if [ -n "$keys" ]; then keys="$keys, "; fi
+        keys="$keys$path"
+    done
+    echo "  $keys"
+    echo ""
+    echo "Examples:"
+    echo "  $0 setup dev"
+    echo "  $0 set dev database/password"
+    echo "  $0 set qa email/host-password"
+    echo "  $0 update prod --region us-west-2"
+    echo "  $0 list qa"
+    echo "  $0 get dev backend-api/key"
 }
 
-set_parameter() {
+# -----------------------------------------------------------------------------
+# ARGUMENT PARSING
+# -----------------------------------------------------------------------------
+
+COMMAND=""
+ENVIRONMENT=""
+SECRET_KEY=""
+REGION="$DEFAULT_REGION"
+APP_NAME="$DEFAULT_APP_NAME"
+
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        setup|update|set|list|validate|get|delete)
+            COMMAND=$1
+            shift
+            ;;
+        --region)
+            REGION=$2
+            shift 2
+            ;;
+        --app-name)
+            APP_NAME=$2
+            shift 2
+            ;;
+        --help|-h)
+            show_help
+            exit 0
+            ;;
+        *)
+            if [ -z "$ENVIRONMENT" ]; then
+                ENVIRONMENT=$1
+            elif [ -z "$SECRET_KEY" ]; then
+                SECRET_KEY=$1
+            else
+                print_error "Unknown argument: $1"
+                show_help
+                exit 1
+            fi
+            shift
+            ;;
+    esac
+done
+
+# Validate inputs
+if [ -z "$COMMAND" ]; then
+    print_error "Error: Command is required"
+    show_help
+    exit 1
+fi
+
+if [ -z "$ENVIRONMENT" ] && [ "$COMMAND" != "help" ]; then
+    print_error "Error: Environment is required"
+    show_help
+    exit 1
+fi
+
+# Warn for non-standard environments
+if [[ "$ENVIRONMENT" != "dev" && "$ENVIRONMENT" != "qa" && "$ENVIRONMENT" != "prod" ]]; then
+    print_warning "Warning: Using non-standard environment name: $ENVIRONMENT"
+    read -p "Continue? (y/N): " confirm
+    if [[ ! $confirm =~ ^[Yy]$ ]]; then
+        exit 0
+    fi
+fi
+
+# Check AWS CLI
+if ! command -v aws &> /dev/null; then
+    print_error "AWS CLI is not installed"
+    echo "Install from: https://aws.amazon.com/cli/"
+    exit 1
+fi
+
+if ! aws sts get-caller-identity --region "$REGION" &> /dev/null; then
+    print_error "AWS credentials not configured or invalid"
+    echo "Run: aws configure"
+    exit 1
+fi
+
+# -----------------------------------------------------------------------------
+# AWS SSM FUNCTIONS
+# -----------------------------------------------------------------------------
+
+prompt_for_secret() {
+    local prompt_text=$1
+    local is_sensitive=${2:-true}
+    local value=""
+
+    if [ "$is_sensitive" = "true" ]; then
+        echo -n "$prompt_text: " >&2
+        read -s value
+        echo "" >&2
+    else
+        echo -n "$prompt_text: " >&2
+        read value
+    fi
+
+    echo "$value"
+}
+
+put_parameter() {
     local name=$1
     local value=$2
-    local type=$3
+    local type=${3:-"SecureString"}
     local description=$4
 
-    aws ssm put-parameter \
+    echo -e "${BLUE}Storing parameter: $name${NC}"
+
+    if aws ssm put-parameter \
+        --region "$REGION" \
         --name "$name" \
         --value "$value" \
         --type "$type" \
         --description "$description" \
-        --overwrite \
-        --region $REGION > /dev/null
-
-    print_success "Set: $name"
+        --overwrite > /dev/null; then
+        print_success "Successfully stored: $name"
+    else
+        print_error "Failed to store: $name"
+        return 1
+    fi
 }
 
 get_parameter() {
     local name=$1
     aws ssm get-parameter \
+        --region "$REGION" \
         --name "$name" \
         --with-decryption \
         --query 'Parameter.Value' \
-        --output text \
-        --region $REGION 2>/dev/null || echo ""
+        --output text 2>/dev/null
 }
 
-prompt_secret() {
-    local prompt=$1
-    local var_name=$2
-    local current_value=$3
+list_parameters() {
+    local path="/$APP_NAME/$ENVIRONMENT"
 
-    if [ -n "$current_value" ]; then
-        echo -e "${YELLOW}Current value exists. Press Enter to keep, or type new value:${NC}"
-    fi
-
-    read -sp "$prompt: " value
-    echo ""
-
-    if [ -z "$value" ] && [ -n "$current_value" ]; then
-        eval "$var_name='$current_value'"
-    else
-        eval "$var_name='$value'"
-    fi
-}
-
-# -----------------------------------------------------------------------------
-# COMMANDS
-# -----------------------------------------------------------------------------
-
-cmd_setup() {
-    local env=$1
-    print_header "Setting up secrets for $env environment"
-
-    local prefix="/$APP_NAME/$env"
-
-    # Database password
-    echo ""
-    echo -e "${BLUE}Database Configuration${NC}"
-    current=$(get_parameter "$prefix/database/password")
-    prompt_secret "PostgreSQL Password" DB_PASSWORD "$current"
-    if [ -n "$DB_PASSWORD" ]; then
-        set_parameter "$prefix/database/password" "$DB_PASSWORD" "SecureString" "PostgreSQL password"
-    fi
-
-    # Backend API Key
-    echo ""
-    echo -e "${BLUE}Backend API Configuration${NC}"
-    current=$(get_parameter "$prefix/backend-api/key")
-    prompt_secret "Backend API Key" API_KEY "$current"
-    if [ -n "$API_KEY" ]; then
-        set_parameter "$prefix/backend-api/key" "$API_KEY" "SecureString" "Backend API key"
-    fi
-
-    # Cryptography Key
-    echo ""
-    echo -e "${BLUE}Cryptography Configuration${NC}"
-    current=$(get_parameter "$prefix/cryptography/key")
-    prompt_secret "Cryptography Key" CRYPTO_KEY "$current"
-    if [ -n "$CRYPTO_KEY" ]; then
-        set_parameter "$prefix/cryptography/key" "$CRYPTO_KEY" "SecureString" "Cryptography key"
-    fi
-
-    # Azure Configuration
-    echo ""
-    echo -e "${BLUE}Azure AD Configuration${NC}"
-
-    read -p "Azure Client ID: " AZURE_CLIENT_ID
-    if [ -n "$AZURE_CLIENT_ID" ]; then
-        set_parameter "$prefix/azure/client-id" "$AZURE_CLIENT_ID" "String" "Azure AD client ID"
-    fi
-
-    read -p "Azure Tenant ID: " AZURE_TENANT_ID
-    if [ -n "$AZURE_TENANT_ID" ]; then
-        set_parameter "$prefix/azure/tenant-id" "$AZURE_TENANT_ID" "String" "Azure AD tenant ID"
-    fi
-
-    current=$(get_parameter "$prefix/azure/client-secret")
-    prompt_secret "Azure Client Secret" AZURE_SECRET "$current"
-    if [ -n "$AZURE_SECRET" ]; then
-        set_parameter "$prefix/azure/client-secret" "$AZURE_SECRET" "SecureString" "Azure AD client secret"
-    fi
-
-    # Anthropic API Key
-    echo ""
-    echo -e "${BLUE}Anthropic Configuration${NC}"
-    current=$(get_parameter "$prefix/anthropic/api-key")
-    prompt_secret "Anthropic API Key" ANTHROPIC_KEY "$current"
-    if [ -n "$ANTHROPIC_KEY" ]; then
-        set_parameter "$prefix/anthropic/api-key" "$ANTHROPIC_KEY" "SecureString" "Anthropic API key"
-    fi
-
-    # noVNC Password
-    echo ""
-    echo -e "${BLUE}noVNC Access Configuration${NC}"
-    current=$(get_parameter "$prefix/novnc/password")
-    prompt_secret "noVNC Password (for remote desktop access)" NOVNC_PASS "$current"
-    if [ -n "$NOVNC_PASS" ]; then
-        set_parameter "$prefix/novnc/password" "$NOVNC_PASS" "SecureString" "noVNC access password"
-    fi
-
-    # Slack Webhook
-    echo ""
-    echo -e "${BLUE}Notification Webhooks${NC}"
-    read -p "Slack Webhook URL (or press Enter to skip): " SLACK_WEBHOOK
-    if [ -n "$SLACK_WEBHOOK" ]; then
-        set_parameter "$prefix/slack/webhook-url" "$SLACK_WEBHOOK" "SecureString" "Slack webhook URL"
-    fi
-
-    # Teams Webhook
-    read -p "Microsoft Teams Webhook URL (or press Enter to skip): " TEAMS_WEBHOOK
-    if [ -n "$TEAMS_WEBHOOK" ]; then
-        set_parameter "$prefix/teams/webhook-url" "$TEAMS_WEBHOOK" "SecureString" "Teams webhook URL"
-    fi
-
-    echo ""
-    print_header "Setup Complete"
-    print_success "All secrets have been configured for $env environment"
-}
-
-cmd_list() {
-    local env=$1
-    print_header "Listing parameters for $env environment"
-
-    local prefix="/$APP_NAME/$env"
+    echo -e "${BLUE}Parameters for $APP_NAME/$ENVIRONMENT:${NC}"
+    echo "================================================"
 
     aws ssm get-parameters-by-path \
-        --path "$prefix" \
+        --region "$REGION" \
+        --path "$path" \
         --recursive \
-        --query 'Parameters[*].[Name,Type]' \
-        --output table \
-        --region $REGION
+        --query 'Parameters[*].[Name,Type,LastModifiedDate]' \
+        --output table
 }
 
-cmd_validate() {
-    local env=$1
-    print_header "Validating secrets for $env environment"
+delete_parameters() {
+    local path="/$APP_NAME/$ENVIRONMENT"
 
-    local prefix="/$APP_NAME/$env"
-    local all_valid=true
-
-    # Required secrets
-    local required_secrets=(
-        "database/password"
-        "backend-api/key"
-        "cryptography/key"
-        "azure/client-id"
-        "azure/tenant-id"
-        "azure/client-secret"
-        "novnc/password"
-    )
-
-    # Optional secrets
-    local optional_secrets=(
-        "anthropic/api-key"
-        "slack/webhook-url"
-        "teams/webhook-url"
-    )
-
+    echo -e "${RED}⚠️  WARNING: This will delete ALL parameters for $APP_NAME/$ENVIRONMENT${NC}"
+    echo -e "${RED}This action cannot be undone!${NC}"
     echo ""
-    echo "Required secrets:"
-    for secret in "${required_secrets[@]}"; do
-        value=$(get_parameter "$prefix/$secret")
-        if [ -n "$value" ]; then
-            print_success "$secret"
-        else
-            print_error "$secret (MISSING)"
-            all_valid=false
-        fi
+    read -p "Type 'DELETE' to confirm: " confirmation
+
+    if [ "$confirmation" != "DELETE" ]; then
+        echo "Deletion cancelled."
+        return 0
+    fi
+
+    local parameters=$(aws ssm get-parameters-by-path \
+        --region "$REGION" \
+        --path "$path" \
+        --recursive \
+        --query 'Parameters[*].Name' \
+        --output text)
+
+    if [ -z "$parameters" ]; then
+        echo "No parameters found to delete."
+        return 0
+    fi
+
+    for param in $parameters; do
+        print_warning "Deleting: $param"
+        aws ssm delete-parameter --region "$REGION" --name "$param" || true
     done
 
-    echo ""
-    echo "Optional secrets:"
-    for secret in "${optional_secrets[@]}"; do
-        value=$(get_parameter "$prefix/$secret")
-        if [ -n "$value" ]; then
-            print_success "$secret"
-        else
-            print_warning "$secret (not set)"
+    print_success "Deletion completed"
+}
+
+# Helper to get registry entry by key
+get_registry_entry() {
+    local key=$1
+    for entry in "${SECRETS_REGISTRY[@]}"; do
+        IFS='|' read -r path _ _ _ _ <<< "$entry"
+        if [ "$path" = "$key" ]; then
+            echo "$entry"
+            return 0
         fi
     done
+    return 1
+}
 
-    echo ""
-    if [ "$all_valid" = true ]; then
-        print_success "All required secrets are configured"
-        exit 0
+# Prompt and store a single secret from registry entry
+prompt_and_store() {
+    local entry=$1
+    local prefix="/$APP_NAME/$ENVIRONMENT"
+
+    IFS='|' read -r path type req description prompt_text <<< "$entry"
+
+    local is_sensitive="true"
+    local ssm_type="SecureString"
+    if [ "$type" = "P" ]; then
+        is_sensitive="false"
+        ssm_type="String"
+    fi
+
+    local label=""
+    if [ "$req" = "R" ]; then
+        label="(REQUIRED)"
     else
-        print_error "Some required secrets are missing"
-        exit 1
-    fi
-}
-
-cmd_get() {
-    local env=$1
-    local param_name=$2
-
-    if [ -z "$param_name" ]; then
-        print_error "Parameter name required"
-        echo "Usage: $0 get <environment> <parameter-name>"
-        exit 1
+        label="(optional)"
     fi
 
-    local prefix="/$APP_NAME/$env"
-    value=$(get_parameter "$prefix/$param_name")
+    local value=$(prompt_for_secret "$prompt_text $label" "$is_sensitive")
 
     if [ -n "$value" ]; then
-        echo "$value"
+        put_parameter "$prefix/$path" "$value" "$ssm_type" "$description"
+    elif [ "$req" = "R" ]; then
+        print_error "Error: $path is required"
+        exit 1
     else
-        print_error "Parameter not found: $prefix/$param_name"
-        exit 1
+        print_warning "Skipped: $path"
     fi
 }
 
-cmd_set() {
-    local env=$1
-    local param_name=$2
-    local param_value=$3
-    local param_type=${4:-"SecureString"}
-
-    if [ -z "$param_name" ] || [ -z "$param_value" ]; then
-        print_error "Parameter name and value required"
-        echo "Usage: $0 set <environment> <parameter-name> <value> [type]"
-        exit 1
-    fi
-
-    local prefix="/$APP_NAME/$env"
-    set_parameter "$prefix/$param_name" "$param_value" "$param_type" "Set via CLI"
-}
-
 # -----------------------------------------------------------------------------
-# MAIN
+# MAIN COMMAND EXECUTION
 # -----------------------------------------------------------------------------
 
-show_usage() {
-    echo "Usage: $0 <command> <environment> [options]"
-    echo ""
-    echo "Commands:"
-    echo "  setup <env>              Interactive setup of all secrets"
-    echo "  list <env>               List all parameters"
-    echo "  validate <env>           Validate required secrets exist"
-    echo "  get <env> <name>         Get a specific parameter"
-    echo "  set <env> <name> <value> Set a specific parameter"
-    echo ""
-    echo "Environments: dev, qa, prod"
-    echo ""
-    echo "Examples:"
-    echo "  $0 setup qa"
-    echo "  $0 validate qa"
-    echo "  $0 list qa"
-    echo "  $0 get qa database/password"
-}
-
-# Check arguments
-if [ $# -lt 2 ]; then
-    show_usage
-    exit 1
-fi
-
-COMMAND=$1
-ENVIRONMENT=$2
-
-# Validate environment
-if [[ ! "$ENVIRONMENT" =~ ^(dev|qa|prod)$ ]]; then
-    print_error "Invalid environment: $ENVIRONMENT"
-    echo "Valid environments: dev, qa, prod"
-    exit 1
-fi
-
-# Check AWS CLI
-check_aws_cli
-
-# Execute command
 case $COMMAND in
-    setup)
-        cmd_setup $ENVIRONMENT
+    setup|update)
+        print_header "Setting up secrets for $APP_NAME/$ENVIRONMENT"
+        echo ""
+        echo -e "${YELLOW}All values will be stored in AWS SSM Parameter Store${NC}"
+        echo -e "${YELLOW}Press Enter to skip optional parameters${NC}"
+        echo ""
+
+        # Required secrets
+        echo -e "${GREEN}--- REQUIRED SECRETS ---${NC}"
+        echo ""
+        for entry in "${SECRETS_REGISTRY[@]}"; do
+            IFS='|' read -r _ _ req _ _ <<< "$entry"
+            if [ "$req" = "R" ]; then
+                prompt_and_store "$entry"
+            fi
+        done
+
+        echo ""
+        # Optional secrets
+        echo -e "${GREEN}--- OPTIONAL SECRETS (press Enter to skip) ---${NC}"
+        echo ""
+        for entry in "${SECRETS_REGISTRY[@]}"; do
+            IFS='|' read -r _ _ req _ _ <<< "$entry"
+            if [ "$req" = "O" ]; then
+                prompt_and_store "$entry"
+            fi
+        done
+
+        echo ""
+        print_header "Secrets setup completed for $ENVIRONMENT environment"
+        echo ""
+        echo -e "${BLUE}To verify, run: $0 list $ENVIRONMENT${NC}"
         ;;
-    list)
-        cmd_list $ENVIRONMENT
-        ;;
-    validate)
-        cmd_validate $ENVIRONMENT
-        ;;
-    get)
-        cmd_get $ENVIRONMENT $3
-        ;;
+
     set)
-        cmd_set $ENVIRONMENT $3 $4 $5
+        if [ -z "$SECRET_KEY" ]; then
+            print_error "Error: Secret key is required for set command"
+            echo "Usage: $0 set <env> <secret-key>"
+            echo "Example: $0 set dev database/password"
+            echo ""
+            echo "Valid keys:"
+            for entry in "${SECRETS_REGISTRY[@]}"; do
+                IFS='|' read -r path _ _ description _ <<< "$entry"
+                printf "  %-25s - %s\n" "$path" "$description"
+            done
+            exit 1
+        fi
+
+        # Validate the secret key against registry
+        entry=$(get_registry_entry "$SECRET_KEY") || true
+        if [ -z "$entry" ]; then
+            print_error "Error: Unknown secret key: $SECRET_KEY"
+            echo ""
+            echo "Valid keys:"
+            for e in "${SECRETS_REGISTRY[@]}"; do
+                IFS='|' read -r path _ _ description _ <<< "$e"
+                printf "  %-25s - %s\n" "$path" "$description"
+            done
+            exit 1
+        fi
+
+        IFS='|' read -r path type _ description _ <<< "$entry"
+
+        local_is_sensitive="true"
+        local_ssm_type="SecureString"
+        if [ "$type" = "P" ]; then
+            local_is_sensitive="false"
+            local_ssm_type="String"
+        fi
+
+        param_name="/$APP_NAME/$ENVIRONMENT/$SECRET_KEY"
+        echo -e "${BLUE}Setting secret: $param_name${NC}"
+        secret_value=$(prompt_for_secret "Enter value for $SECRET_KEY" "$local_is_sensitive")
+
+        if [ -z "$secret_value" ]; then
+            print_error "Error: Value cannot be empty"
+            exit 1
+        fi
+
+        put_parameter "$param_name" "$secret_value" "$local_ssm_type" "$description"
+        echo ""
+        print_success "Secret $SECRET_KEY updated for $ENVIRONMENT environment"
         ;;
+
+    list)
+        list_parameters
+        ;;
+
+    validate)
+        print_header "Validating secrets for $ENVIRONMENT environment"
+
+        local_prefix="/$APP_NAME/$ENVIRONMENT"
+        all_valid=true
+
+        echo ""
+        echo "Required secrets:"
+        for entry in "${SECRETS_REGISTRY[@]}"; do
+            IFS='|' read -r path _ req _ _ <<< "$entry"
+            if [ "$req" = "R" ]; then
+                value=$(get_parameter "$local_prefix/$path")
+                if [ -n "$value" ]; then
+                    print_success "$path"
+                else
+                    print_error "$path (MISSING)"
+                    all_valid=false
+                fi
+            fi
+        done
+
+        echo ""
+        echo "Optional secrets:"
+        for entry in "${SECRETS_REGISTRY[@]}"; do
+            IFS='|' read -r path _ req _ _ <<< "$entry"
+            if [ "$req" = "O" ]; then
+                value=$(get_parameter "$local_prefix/$path")
+                if [ -n "$value" ]; then
+                    print_success "$path"
+                else
+                    print_warning "$path (not set)"
+                fi
+            fi
+        done
+
+        echo ""
+        if [ "$all_valid" = true ]; then
+            print_success "All required secrets are configured"
+            exit 0
+        else
+            print_error "Some required secrets are missing"
+            exit 1
+        fi
+        ;;
+
+    get)
+        if [ -z "$SECRET_KEY" ]; then
+            print_error "Error: Secret key is required for get command"
+            echo "Usage: $0 get <env> <secret-key>"
+            echo "Example: $0 get dev database/password"
+            exit 1
+        fi
+
+        param_name="/$APP_NAME/$ENVIRONMENT/$SECRET_KEY"
+        value=$(get_parameter "$param_name")
+
+        if [ -n "$value" ]; then
+            print_success "Parameter: $param_name"
+            echo "Value: $value"
+        else
+            print_error "Parameter not found: $param_name"
+            exit 1
+        fi
+        ;;
+
+    delete)
+        delete_parameters
+        ;;
+
     *)
         print_error "Unknown command: $COMMAND"
-        show_usage
+        show_help
         exit 1
         ;;
 esac

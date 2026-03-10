@@ -71,7 +71,7 @@ ROOT_URLCONF = "config.urls"
 TEMPLATES = [
     {
         "BACKEND": "django.template.backends.django.DjangoTemplates",
-        "DIRS": [],
+        "DIRS": [BASE_DIR / "web_scrapers" / "infrastructure" / "templates"],
         "APP_DIRS": True,
         "OPTIONS": {
             "context_processors": [
@@ -144,3 +144,22 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 ENCRYPTION_KEY = os.environ.get("CRYPTOGRAPHY_KEY", None)
 EIQ_BACKEND_API_KEY = os.environ.get("EIQ_BACKEND_API_KEY")
+
+# Email configuration
+EMAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
+EMAIL_HOST = os.environ.get("EMAIL_HOST", "localhost")
+EMAIL_PORT = int(os.environ.get("EMAIL_PORT", 587))
+EMAIL_HOST_USER = os.environ.get("EMAIL_HOST_USER", "")
+EMAIL_HOST_PASSWORD = os.environ.get("EMAIL_HOST_PASSWORD", "")
+EMAIL_USE_TLS = os.environ.get("EMAIL_USE_TLS", "True") == "True"
+EMAIL_FROM_ADDRESS = os.environ.get("EMAIL_FROM_ADDRESS", "iqnotifications@expertel.com")
+
+# Scraper alert recipients (comma-separated list of email addresses)
+SCRAPER_ALERT_EMAILS = [
+    email.strip()
+    for email in os.environ.get("SCRAPER_ALERT_EMAILS", "ops@expertel.com").split(",")
+    if email.strip()
+]
+
+# Frontend URL for building links in emails
+FRONTEND_URL = os.environ.get("FRONTEND_URL", "https://app.expertel.com")

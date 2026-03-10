@@ -85,6 +85,64 @@ resource "aws_ssm_parameter" "mfa_service_url" {
 }
 
 # -----------------------------------------------------------------------------
+# EMAIL CONFIGURATION (non-secret parts)
+# -----------------------------------------------------------------------------
+
+resource "aws_ssm_parameter" "email_host" {
+  name        = "/${var.app_name}/${var.environment}/email/host"
+  description = "SMTP host"
+  type        = "String"
+  value       = "smtp.your-provider.com"
+
+  tags = local.common_tags
+}
+
+resource "aws_ssm_parameter" "email_port" {
+  name        = "/${var.app_name}/${var.environment}/email/port"
+  description = "SMTP port"
+  type        = "String"
+  value       = "587"
+
+  tags = local.common_tags
+}
+
+resource "aws_ssm_parameter" "email_use_tls" {
+  name        = "/${var.app_name}/${var.environment}/email/use-tls"
+  description = "Use TLS for SMTP"
+  type        = "String"
+  value       = "True"
+
+  tags = local.common_tags
+}
+
+resource "aws_ssm_parameter" "email_from_address" {
+  name        = "/${var.app_name}/${var.environment}/email/from-address"
+  description = "Email sender address"
+  type        = "String"
+  value       = "iqnotifications@expertel.com"
+
+  tags = local.common_tags
+}
+
+resource "aws_ssm_parameter" "scraper_alert_emails" {
+  name        = "/${var.app_name}/${var.environment}/email/alert-recipients"
+  description = "Comma-separated list of scraper alert email recipients"
+  type        = "String"
+  value       = "ops@expertel.com"
+
+  tags = local.common_tags
+}
+
+resource "aws_ssm_parameter" "frontend_url" {
+  name        = "/${var.app_name}/${var.environment}/config/frontend-url"
+  description = "Frontend URL for building links in emails"
+  type        = "String"
+  value       = "https://app.expertel.com"
+
+  tags = local.common_tags
+}
+
+# -----------------------------------------------------------------------------
 # INSTANCE INFO
 # -----------------------------------------------------------------------------
 

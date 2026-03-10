@@ -261,6 +261,16 @@ ANTHROPIC_API_KEY=$(get_ssm_parameter "/$APP_NAME/$ENVIRONMENT/anthropic/api-key
 MFA_SERVICE_URL=$(get_ssm_parameter "/$APP_NAME/$ENVIRONMENT/mfa-service/url")
 NOVNC_PASSWORD=$(get_ssm_parameter "/$APP_NAME/$ENVIRONMENT/novnc/password")
 
+# Email configuration
+EMAIL_HOST=$(get_ssm_parameter "/$APP_NAME/$ENVIRONMENT/email/host")
+EMAIL_PORT=$(get_ssm_parameter "/$APP_NAME/$ENVIRONMENT/email/port")
+EMAIL_HOST_USER=$(get_ssm_parameter "/$APP_NAME/$ENVIRONMENT/email/host-user")
+EMAIL_HOST_PASSWORD=$(get_ssm_parameter "/$APP_NAME/$ENVIRONMENT/email/host-password")
+EMAIL_USE_TLS=$(get_ssm_parameter "/$APP_NAME/$ENVIRONMENT/email/use-tls")
+EMAIL_FROM_ADDRESS=$(get_ssm_parameter "/$APP_NAME/$ENVIRONMENT/email/from-address")
+SCRAPER_ALERT_EMAILS=$(get_ssm_parameter "/$APP_NAME/$ENVIRONMENT/email/alert-recipients")
+FRONTEND_URL=$(get_ssm_parameter "/$APP_NAME/$ENVIRONMENT/config/frontend-url")
+
 # Set scraper user password (same as noVNC for convenience)
 echo "scraper:$NOVNC_PASSWORD" | chpasswd
 echo "Scraper user password set"
@@ -296,6 +306,16 @@ ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY
 
 # MFA Service
 MFA_SERVICE_URL=$MFA_SERVICE_URL
+
+# Email
+EMAIL_HOST=$EMAIL_HOST
+EMAIL_PORT=$EMAIL_PORT
+EMAIL_HOST_USER=$EMAIL_HOST_USER
+EMAIL_HOST_PASSWORD=$EMAIL_HOST_PASSWORD
+EMAIL_USE_TLS=$EMAIL_USE_TLS
+EMAIL_FROM_ADDRESS=$EMAIL_FROM_ADDRESS
+SCRAPER_ALERT_EMAILS=$SCRAPER_ALERT_EMAILS
+FRONTEND_URL=$FRONTEND_URL
 
 # Environment
 ENVIRONMENT=$ENVIRONMENT

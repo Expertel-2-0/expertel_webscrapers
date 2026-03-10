@@ -2,13 +2,16 @@
 ScraperJobService - Service for managing ScraperJobs with available_at support
 """
 
+import logging
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
 
+from django.conf import settings
 from django.db import transaction
 from django.db.models import Case, Q, Value, When
 from django.utils import timezone
 
+from web_scrapers.application.services.email_service import DjangoEmailBackend, EmailService
 from web_scrapers.domain.entities.models import (
     Account,
     BillingCycle,
@@ -26,6 +29,7 @@ from web_scrapers.domain.entities.models import (
     Workspace,
 )
 from web_scrapers.domain.enums import FileStatus, ScraperJobStatus, ScraperType
+from web_scrapers.domain.mailables.scraper_error_alert import ScraperErrorAlertMailable
 from web_scrapers.infrastructure.django.models import ScraperJob as DjangoScraperJob
 from web_scrapers.infrastructure.django.repositories import (
     AccountRepository,
@@ -41,6 +45,8 @@ from web_scrapers.infrastructure.django.repositories import (
     ScraperJobRepository,
     WorkspaceRepository,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class ScraperJobService:
@@ -92,7 +98,7 @@ class ScraperJobService:
 
         # Build base query filter for PENDING jobs
         query_filter = Q(status=ScraperJobStatus.PENDING)
-        query_filter &=Q(id=2199)
+
 
         if include_null_available_at:
             query_filter &= Q(available_at__lte=current_time) | Q(available_at__isnull=True)
@@ -455,7 +461,52 @@ class ScraperJobService:
                 result["message"] = f"Max retries reached ({django_job.max_retries}). Job marked as ERROR."
 
         django_job.save()
+
+        if result["final_status"] == ScraperJobStatus.ERROR:
+            self._send_error_alert(django_job)
+
         return result
+
+    def _send_error_alert(self, django_job) -> None:
+        """
+        Send an error alert email for a failed scraper job.
+
+        Fetches the related context (carrier, client, account) and sends an email
+        to all configured recipients in settings.SCRAPER_ALERT_EMAILS.
+
+        Args:
+            django_job: The Django ScraperJob instance that reached ERROR status.
+        """
+        try:
+            django_job = DjangoScraperJob.objects.select_related(
+                "scraper_config__carrier",
+                "scraper_config__account__workspace__client",
+            ).get(pk=django_job.pk)
+
+            log_lines = [line.strip() for line in (django_job.log or "").splitlines() if line.strip()]
+            error_message = log_lines[-1] if log_lines else "Unknown error"
+
+            mailable = ScraperErrorAlertMailable(
+                job_id=django_job.pk,
+                scraper_type=django_job.get_type_display(),
+                carrier_name=django_job.scraper_config.carrier.name,
+                client_name=django_job.scraper_config.account.workspace.client.name,
+                account_number=django_job.scraper_config.account.number,
+                error_message=error_message,
+                retry_count=django_job.retry_count,
+                max_retries=django_job.max_retries,
+                error_date=django_job.completed_at.strftime("%Y-%m-%d %H:%M UTC") if django_job.completed_at else "N/A",
+                logs_url=f"{settings.FRONTEND_URL}/scraper-jobs/{django_job.pk}",
+            )
+
+            EmailService(DjangoEmailBackend()).send(mailable)
+            logger.info(
+                "Scraper error alert sent for job %d (carrier: %s)",
+                django_job.pk,
+                django_job.scraper_config.carrier.name,
+            )
+        except Exception:
+            logger.exception("Failed to send scraper error alert email for job %d", django_job.pk)
 
     def _get_retry_available_at(self, scraper_type: ScraperType) -> datetime:
         """
