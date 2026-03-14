@@ -41,6 +41,9 @@ fastapi = {extras = ["standard"], version = "^0.125.0"}
 sse-starlette = "^3.0.4"
 anthropic = "^0.75.0"
 playwright-stealth = "^2.0.0"
+2captcha-python = "^2.0.3"
+patchright = "^1.58.2"
+capsolver-extension-python = "^1.0.3"
 
 
 [build-system]

@@ -263,6 +263,9 @@ class PlaywrightWrapper(BrowserWrapper):
             print(f"Error en descarga: {str(e)}")
             return None
 
+    def get_page_content(self) -> str:
+        return self.page.content()
+
     def click_and_switch_to_new_tab(self, selector: str, timeout: int = 10000, selector_type: str = "xpath") -> None:
         resolved = self._resolve_selector(selector, selector_type)
         with self.page.context.expect_page(timeout=timeout) as new_page_info:

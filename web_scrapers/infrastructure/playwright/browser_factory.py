@@ -1,9 +1,55 @@
+import atexit
+import logging
 import os
+import signal
+import subprocess
+import time
 from pathlib import Path
 from typing import Any, Dict, Optional, Type
 
 from playwright.sync_api import Browser, BrowserContext, Page, Playwright as SyncPlaywright, sync_playwright
 from playwright_stealth import Stealth
+
+logger = logging.getLogger(__name__)
+
+# ---- Global CDP subprocess cleanup ----
+# Registro global para garantizar que Chrome CDP se mate en CUALQUIER escenario de salida:
+# Ctrl+C, kill, crash, exit normal, exception no capturada, etc.
+_cdp_subprocesses: set[subprocess.Popen] = set()
+
+
+def _cleanup_cdp_subprocesses():
+    """Mata todos los subprocesses de Chrome CDP registrados."""
+    for proc in list(_cdp_subprocesses):
+        try:
+            if proc.poll() is None:  # Sigue vivo
+                logger.info("Cleanup: terminating Chrome CDP subprocess (PID %d)", proc.pid)
+                proc.terminate()
+                try:
+                    proc.wait(timeout=3)
+                except subprocess.TimeoutExpired:
+                    proc.kill()
+        except Exception:
+            pass
+    _cdp_subprocesses.clear()
+
+
+# atexit cubre: exit normal, sys.exit(), excepciones no capturadas, KeyboardInterrupt
+atexit.register(_cleanup_cdp_subprocesses)
+
+
+# Signal handler para SIGTERM (kill del servicio / docker stop / systemctl stop)
+def _sigterm_handler(signum, frame):
+    _cleanup_cdp_subprocesses()
+    # Re-raise para que el proceso termine normalmente
+    raise SystemExit(1)
+
+
+try:
+    signal.signal(signal.SIGTERM, _sigterm_handler)
+except (OSError, ValueError):
+    # signal.signal puede fallar en threads secundarios — no es critico
+    pass
 
 from web_scrapers.domain.entities.ports import NavigatorDriverBuilder
 from web_scrapers.domain.enums import Navigators
@@ -282,6 +328,14 @@ def apply_stealth_context(context):
 
 class BrowserDriverFactory:
 
+    CHROME_PATHS = [
+        "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
+        "C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe",
+        "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+        "/usr/bin/google-chrome",
+        "/usr/bin/google-chrome-stable",
+    ]
+
     def __init__(self):
         self._driver_builders: Dict[Navigators, Type[NavigatorDriverBuilder]] = {
             Navigators.CHROME: ChromeDriverBuilder,
@@ -294,6 +348,7 @@ class BrowserDriverFactory:
         self._context: Optional[BrowserContext] = None
         self._page: Optional[Page] = None
         self._persistent_context: Optional[BrowserContext] = None
+        self._chrome_subprocess: Optional[subprocess.Popen] = None
 
     def get_profile_dir(self, profile_name: str = "default") -> str:
         """Retorna el directorio del perfil persistente para un scraper especifico."""
@@ -455,14 +510,77 @@ class BrowserDriverFactory:
 
         return self._persistent_context
 
+    @staticmethod
+    def _find_chrome() -> Optional[str]:
+        """Busca el ejecutable de Chrome real en el sistema."""
+        for path in BrowserDriverFactory.CHROME_PATHS:
+            if os.path.isfile(path):
+                return path
+        return None
+
+    def create_cdp_browser(self, debug_port: int = 9222) -> tuple[Browser, BrowserContext]:
+        """Lanza Chrome real via CDP y conecta Playwright.
+
+        Chrome real bypasea Cloudflare porque no es detectado como bot.
+        Usa un user-data-dir persistente para mantener cookies entre ejecuciones.
+        """
+        chrome_path = self._find_chrome()
+        if not chrome_path:
+            raise RuntimeError(
+                "Google Chrome no encontrado en el sistema. "
+                "Instala Chrome para usar el modo CDP. "
+                f"Rutas buscadas: {self.CHROME_PATHS}"
+            )
+
+        if not self._playwright:
+            self._playwright = sync_playwright().start()
+
+        profile_dir = self.get_profile_dir("telus_cdp")
+
+        logger.info("Launching Chrome via CDP (port %d, profile: %s)...", debug_port, profile_dir)
+        self._chrome_subprocess = subprocess.Popen(
+            [
+                chrome_path,
+                f"--remote-debugging-port={debug_port}",
+                f"--user-data-dir={profile_dir}",
+                "--no-first-run",
+                "--no-default-browser-check",
+                "--disable-backgrounding-occluded-windows",
+                "--disable-renderer-backgrounding",
+                "--disable-background-timer-throttling",
+                "about:blank",
+            ],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        _cdp_subprocesses.add(self._chrome_subprocess)
+        time.sleep(3)
+        logger.info("Chrome launched (PID %d)", self._chrome_subprocess.pid)
+
+        self._browser = self._playwright.chromium.connect_over_cdp(
+            f"http://127.0.0.1:{debug_port}"
+        )
+        # Usar el contexto existente de Chrome (tiene cookies persistidas)
+        if self._browser.contexts:
+            self._context = self._browser.contexts[0]
+        else:
+            self._context = self._browser.new_context()
+
+        return self._browser, self._context
+
     def create_full_setup(
         self,
         browser_type: Optional[Navigators] = None,
         profile_name: Optional[str] = None,
+        cdp: bool = False,
         **kwargs
     ) -> tuple[Optional[Browser], BrowserContext]:
-        """Crea browser y contexto. Si profile_name se especifica, usa contexto persistente."""
-        if profile_name:
+        """Crea browser y contexto. Si profile_name se especifica, usa contexto persistente.
+        Si cdp=True, lanza Chrome real via CDP (bypasea Cloudflare)."""
+        if cdp:
+            browser, context = self.create_cdp_browser()
+            return browser, context
+        elif profile_name:
             # Usar contexto persistente (no hay browser separado)
             context = self.create_persistent_context(profile_name)
             return None, context
@@ -487,6 +605,16 @@ class BrowserDriverFactory:
         if self._browser:
             self._browser.close()
             self._browser = None
+
+        if self._chrome_subprocess:
+            logger.info("Terminating Chrome CDP subprocess (PID %d)...", self._chrome_subprocess.pid)
+            self._chrome_subprocess.terminate()
+            try:
+                self._chrome_subprocess.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                self._chrome_subprocess.kill()
+            _cdp_subprocesses.discard(self._chrome_subprocess)
+            self._chrome_subprocess = None
 
         if self._playwright:
             self._playwright.stop()
@@ -520,10 +648,11 @@ class BrowserManager:
     def get_browser(
         self,
         browser_type: Optional[Navigators] = None,
-        profile_name: Optional[str] = None
+        profile_name: Optional[str] = None,
+        cdp: bool = False,
     ) -> tuple[Optional[Browser], BrowserContext]:
-        """Obtiene browser y contexto. Si profile_name se especifica, usa perfil persistente."""
-        return self._factory.create_full_setup(browser_type, profile_name=profile_name)
+        """Obtiene browser y contexto. Si cdp=True, usa Chrome real via CDP."""
+        return self._factory.create_full_setup(browser_type, profile_name=profile_name, cdp=cdp)
 
     def cleanup_all(self) -> None:
         if self._factory:

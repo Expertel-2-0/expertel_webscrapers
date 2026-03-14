@@ -246,51 +246,78 @@ class TelusAuthStrategy(AuthBaseStrategy):
 
     def login(self, credentials: Credentials) -> bool:
         try:
-            print("Starting login in Telus...")
+            self.logger.info("Starting login in Telus...")
 
             login_url = self.get_login_url()
-            self.browser_wrapper.goto(login_url)
+            self.browser_wrapper.goto(login_url, wait_until="domcontentloaded")
             self.browser_wrapper.wait_for_page_load()
-            time.sleep(3)
+            time.sleep(5)
 
-            # Handle potential blocking popup with skip button
+            # Step 1: Detect and wait for Cloudflare challenge if present
+            if self._is_cloudflare_challenge():
+                self.logger.warning("Cloudflare challenge detected, waiting for auto-resolve...")
+                if not self._wait_for_cloudflare_resolution():
+                    self.logger.error("Cloudflare challenge did not resolve in time")
+                    return False
+
+            # Step 2: Check if already logged in (CDP persists cookies via user-data-dir)
+            if self._is_already_logged_in():
+                self.logger.info("Already logged in (session persisted), skipping credential entry")
+                return True
+
+            # Step 3: Dismiss cookie banner if present
+            self._dismiss_cookie_banner()
+
+            # Step 4: Handle potential blocking popup with skip button
             self._try_skip_popup()
 
             my_telus_button_xpath = '//*[@id="ge-top-nav"]/ul[2]/li[3]/button'
-            print("Clicking My Telus...")
+            self.logger.info("Clicking My Telus...")
             self.browser_wrapper.click_element(my_telus_button_xpath)
             time.sleep(2)
 
             my_telus_web_button_xpath = '//*[@id="ge-top-nav"]/ul[2]/li[3]/nav/div/ul/li[1]/a'
-            print("Clicking My Telus Web...")
+            self.logger.info("Clicking My Telus Web...")
             self.browser_wrapper.click_element(my_telus_web_button_xpath)
             self.browser_wrapper.wait_for_page_load()
             time.sleep(3)
 
+            # Check again after navigation — may have been redirected to logged-in state
+            if self._is_already_logged_in():
+                self.logger.info("Already logged in after My Telus navigation")
+                return True
+
+            # Wait for Cloudflare again on login page
+            if self._is_cloudflare_challenge():
+                self.logger.warning("Cloudflare challenge on login page, waiting...")
+                if not self._wait_for_cloudflare_resolution():
+                    self.logger.error("Cloudflare challenge did not resolve on login page")
+                    return False
+
             email_field_xpath = '//*[@id="idtoken1"]'
-            print(f"Entering email: {credentials.username}")
+            self.logger.info(f"Entering email: {credentials.username}")
             self.browser_wrapper.clear_and_type(email_field_xpath, credentials.username)
             time.sleep(1)
 
             password_field_xpath = '//*[@id="idtoken2"]'
-            print("Entering password...")
+            self.logger.info("Entering password...")
             self.browser_wrapper.clear_and_type(password_field_xpath, credentials.password)
             time.sleep(1)
 
             login_button_xpath = '//*[@id="login-btn"]'
-            print("Clicking Login...")
+            self.logger.info("Clicking Login...")
             self.browser_wrapper.click_element(login_button_xpath)
             time.sleep(5)
 
             if self.is_logged_in():
-                print("Login successful in Telus")
+                self.logger.info("Login successful in Telus")
                 return True
             else:
-                print("Login failed in Telus")
+                self.logger.error("Login failed in Telus")
                 return False
 
         except Exception as e:
-            print(f"Error during login in Telus: {str(e)}")
+            self.logger.error(f"Error during login in Telus: {str(e)}")
             return False
 
     def logout(self) -> bool:
@@ -400,6 +427,52 @@ class TelusAuthStrategy(AuthBaseStrategy):
 
     def get_login_button_xpath(self) -> str:
         return "/html[1]/body[1]/div[1]/div[1]/div[1]/div[1]/div[1]/div[1]/form[1]/div[4]/div[1]"
+
+    def _is_cloudflare_challenge(self) -> bool:
+        """Detecta si la pagina actual es un challenge de Cloudflare."""
+        try:
+            html = self.browser_wrapper.get_page_content()
+            markers = [
+                "Just a moment",
+                "Checking if the site connection is secure",
+                "cf-challenge",
+                "cf_chl_opt",
+            ]
+            return any(marker in html for marker in markers)
+        except Exception:
+            return False
+
+    def _wait_for_cloudflare_resolution(self, max_wait: int = 60) -> bool:
+        """Espera a que Cloudflare se auto-resuelva (Chrome real lo resuelve solo)."""
+        intervals = max_wait // 5
+        for i in range(intervals):
+            time.sleep(5)
+            if not self._is_cloudflare_challenge():
+                self.logger.info("Cloudflare challenge resolved after %d seconds", (i + 1) * 5)
+                return True
+        return False
+
+    def _dismiss_cookie_banner(self) -> None:
+        """Dismiss cookie consent banner if present."""
+        try:
+            accept_xpath = '//button[contains(text(), "Accept all cookies")]'
+            if self.browser_wrapper.is_element_visible(accept_xpath, timeout=3000):
+                self.browser_wrapper.click_element(accept_xpath)
+                self.logger.info("Dismissed cookie banner")
+                time.sleep(1)
+        except Exception:
+            pass
+
+    def _is_already_logged_in(self) -> bool:
+        """Detecta si ya hay sesion activa (util con CDP que persiste cookies)."""
+        try:
+            current_url = self.browser_wrapper.get_current_url().lower()
+            title = self.browser_wrapper.get_page_title().lower()
+            if "my-telus" in current_url or "overview" in title or "dashboard" in current_url:
+                return True
+            return False
+        except Exception:
+            return False
 
     def _try_skip_popup(self) -> None:
         """Try to dismiss a blocking popup by clicking the skip button if present."""

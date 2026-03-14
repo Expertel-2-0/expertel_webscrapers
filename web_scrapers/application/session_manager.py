@@ -26,11 +26,15 @@ class SessionManager:
     # Carriers que requieren perfil persistente para evitar deteccion de bots
     CARRIERS_WITH_PERSISTENT_PROFILE = {Carrier.ROGERS}
 
+    # Carriers que requieren Chrome real via CDP para bypasear Cloudflare
+    CARRIERS_WITH_CDP_BROWSER = {Carrier.TELUS}
+
     def __init__(self, browser_type: Optional[Navigators] = None):
         self.logger = logging.getLogger(self.__class__.__name__)
         self.browser_manager = BrowserManager()
         self.browser_type = browser_type
         self.session_state = SessionState()
+        self._use_cdp = False
 
         self._auth_strategies: dict[tuple[Carrier, ScraperType], Type[AuthBaseStrategy]] = {
             (Carrier.BELL, ScraperType.MONTHLY_REPORTS): BellEnterpriseAuthStrategy,
@@ -119,20 +123,89 @@ class SessionManager:
     def get_error_message(self) -> Optional[str]:
         return self.session_state.error_message
 
+    def _needs_browser_switch(self, carrier: Optional[Carrier] = None) -> bool:
+        """Detecta si necesitamos destruir el browser actual y crear uno nuevo.
+
+        Esto ocurre cuando el modo cambia (CDP <-> normal/persistent), lo cual
+        pasa al cambiar entre carriers que usan Chrome real (Telus) y los demas.
+        """
+        if not self._browser_wrapper:
+            return False  # No hay browser, no hay nada que switchear
+
+        needs_cdp = carrier is not None and carrier in self.CARRIERS_WITH_CDP_BROWSER
+        if needs_cdp != self._use_cdp:
+            return True
+
+        return False
+
+    def _destroy_browser(self) -> None:
+        """Destruye la instancia actual del browser (pagina, contexto, browser, subprocess).
+
+        No toca el session_state — eso lo maneja login()/logout().
+        """
+        self.logger.info("[BROWSER DESTROY] Tearing down current browser instance")
+        self._browser_wrapper = None
+
+        if self._page:
+            try:
+                self._page.close()
+            except Exception:
+                pass
+            self._page = None
+
+        if self._context:
+            try:
+                self._context.close()
+            except Exception:
+                pass
+            self._context = None
+
+        if self._browser:
+            try:
+                self._browser.close()
+            except Exception:
+                pass
+            self._browser = None
+
+        # Cleanup del factory (mata subprocess de Chrome si existe)
+        self.browser_manager.cleanup_all()
+        # Re-inicializar el BrowserManager singleton para la siguiente creacion
+        self.browser_manager = BrowserManager()
+
     def _initialize_browser(self, carrier: Optional[Carrier] = None) -> BrowserWrapper:
 
-        if not self._browser_wrapper:
-            # Determinar si el carrier requiere perfil persistente
-            profile_name = None
-            if carrier and carrier in self.CARRIERS_WITH_PERSISTENT_PROFILE:
-                profile_name = carrier.value.lower()  # "rogers", "bell", etc.
-
-            self._browser, self._context = self.browser_manager.get_browser(
-                self.browser_type,
-                profile_name=profile_name
+        # Si el browser existe pero el modo necesita cambiar, destruirlo primero
+        if self._needs_browser_switch(carrier):
+            self.logger.info(
+                f"[BROWSER SWITCH] Browser mode change detected "
+                f"(cdp={self._use_cdp} -> cdp={carrier in self.CARRIERS_WITH_CDP_BROWSER}), "
+                f"destroying current browser"
             )
-            self._page = self._context.new_page()
-            Stealth().apply_stealth_sync(self._page)  # Aplicar stealth a la pagina
+            self._destroy_browser()
+
+        if not self._browser_wrapper:
+            # Determinar modo de browser segun carrier
+            self._use_cdp = carrier is not None and carrier in self.CARRIERS_WITH_CDP_BROWSER
+
+            if self._use_cdp:
+                # Chrome real via CDP - bypasea Cloudflare
+                self.logger.info(f"[CDP MODE] Using real Chrome via CDP for {carrier}")
+                self._browser, self._context = self.browser_manager.get_browser(cdp=True)
+                self._page = self._context.new_page()
+                # NO aplicar Stealth: Chrome real no lo necesita y puede causar deteccion
+            else:
+                # Determinar si el carrier requiere perfil persistente
+                profile_name = None
+                if carrier and carrier in self.CARRIERS_WITH_PERSISTENT_PROFILE:
+                    profile_name = carrier.value.lower()  # "rogers", "bell", etc.
+
+                self._browser, self._context = self.browser_manager.get_browser(
+                    self.browser_type,
+                    profile_name=profile_name
+                )
+                self._page = self._context.new_page()
+                Stealth().apply_stealth_sync(self._page)  # Aplicar stealth a la pagina
+
             self._browser_wrapper = PlaywrightWrapper(self._page)
 
         return self._browser_wrapper
@@ -140,7 +213,8 @@ class SessionManager:
     def get_new_browser_wrapper(self) -> BrowserWrapper:
         if self._context:
             self._page = self._context.new_page()
-            Stealth().apply_stealth_sync(self._page)  # Aplicar stealth a la pagina
+            if not self._use_cdp:
+                Stealth().apply_stealth_sync(self._page)
             self._browser_wrapper = PlaywrightWrapper(self._page)
         return self._browser_wrapper
 
@@ -264,19 +338,8 @@ class SessionManager:
         self._current_auth_strategy = None
         self._scraper_type = None
         self._current_login_url = None
-        self._browser_wrapper = None
 
-        if self._page:
-            self._page.close()
-            self._page = None
-
-        if self._context:
-            self._context.close()
-            self._context = None
-
-        if self._browser:
-            self._browser.close()
-            self._browser = None
+        self._destroy_browser()
 
     def clear_error(self) -> None:
         """Clears error state and returns to appropriate status based on current auth state."""
@@ -293,7 +356,8 @@ class SessionManager:
             for page in self._context.pages:
                 page.close()
             self._page = self._context.new_page()
-            Stealth().apply_stealth_sync(self._page)  # Aplicar stealth a la pagina
+            if not self._use_cdp:
+                Stealth().apply_stealth_sync(self._page)
             self._browser_wrapper = PlaywrightWrapper(self._page)
 
     def __enter__(self):

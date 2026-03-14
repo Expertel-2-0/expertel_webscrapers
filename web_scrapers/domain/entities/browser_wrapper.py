@@ -184,6 +184,11 @@ class BrowserWrapper(ABC):
         raise NotImplementedError()
 
     @abstractmethod
+    def get_page_content(self) -> str:
+        """Obtiene el contenido HTML completo de la página actual."""
+        raise NotImplementedError()
+
+    @abstractmethod
     def click_and_switch_to_new_tab(self, selector: str, timeout: int = 10000, selector_type: str = "xpath") -> None:
         """Hace clic en un enlace que abre una nueva pestaña."""
         raise NotImplementedError()
