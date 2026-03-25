@@ -128,7 +128,7 @@ resource "aws_ssm_parameter" "scraper_alert_emails" {
   name        = "/${var.app_name}/${var.environment}/email/alert-recipients"
   description = "Comma-separated list of scraper alert email recipients"
   type        = "String"
-  value       = "ops@expertel.com"
+  value       = "nelson@expertel.com"
 
   tags = local.common_tags
 }

@@ -4,197 +4,285 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>{% block title %}Expertel iQ{% endblock %}</title>
+  <link href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;600;700&display=swap" rel="stylesheet">
   <style>
-    /* Reset and base styles */
+    * { margin: 0; padding: 0; box-sizing: border-box; }
     body {
-      margin: 0;
-      padding: 0;
-      background-color: #ECEFF1;
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
-      font-size: 16px;
-      line-height: 1.6;
-      color: #212121;
+      background-color: #f0f0f0;
+      font-family: 'Figtree', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+      -webkit-font-smoothing: antialiased;
     }
 
-    /* Main container */
+    /* ── Outer wrapper ── */
     .email-wrapper {
-      max-width: 600px;
+      width: 100%;
+      padding: 40px 0;
+    }
+
+    /* ── Email container ── */
+    .email-container {
+      width: 602px;
       margin: 0 auto;
-      background-color: #ECEFF1;
-      padding: 20px;
+      background: #ffffff;
+      overflow: hidden;
     }
 
-    /* Header styles */
+    /* ── Header ── */
     .email-header {
-      background-color: #E53935;
-      padding: 24px 32px;
-      text-align: center;
-      border-radius: 8px 8px 0 0;
+      background-color: #DE4526;
+      height: 133px;
+      position: relative;
+      overflow: hidden;
+      display: flex;
+      align-items: center;
+      justify-content: center;
     }
-
-    .email-header img {
-      max-height: 40px;
-      width: auto;
+    .email-header .header-bg {
+      position: absolute;
+      inset: 0;
+      background: radial-gradient(ellipse at 110% -60%, #c93d1f 0%, #DE4526 55%);
+      opacity: 0.6;
     }
-
-    .email-header-text {
+    .email-header .header-logo {
+      position: relative;
+      z-index: 1;
+    }
+    .email-header .header-logo img {
+      width: 210px;
+      height: auto;
+      max-height: 80px;
+      object-fit: contain;
+      display: block;
+    }
+    .email-header .header-text {
+      position: relative;
+      z-index: 1;
       color: #FFFFFF;
-      font-size: 24px;
+      font-size: 28px;
       font-weight: 700;
-      margin: 0;
       letter-spacing: 0.5px;
     }
 
-    /* Content card */
-    .content-card {
-      background-color: #FFFFFF;
-      padding: 32px;
-      border-radius: 0 0 8px 8px;
-      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    /* ── Body ── */
+    .email-body {
+      padding: 48px 60px 60px;
     }
 
-    .content-card h1 {
-      color: #212121;
-      font-size: 24px;
+    /* ── Heading ── */
+    .email-title {
+      font-size: 20px;
+      font-weight: 700;
+      line-height: 1.3;
+      color: #1D2433;
+      margin-bottom: 10px;
+    }
+    .email-subtitle {
+      font-size: 16px;
+      font-weight: 400;
+      line-height: 1.3;
+      color: #1D2433;
+      margin-bottom: 30px;
+    }
+
+    /* ── Info card ── */
+    .info-card {
+      background-color: #F8F9FC;
+      border: 1px solid #EDF0F7;
+      border-radius: 10px;
+      padding: 25px;
+      margin-bottom: 30px;
+    }
+    .info-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px 0;
+    }
+    .info-row:first-child {
+      padding-top: 0;
+    }
+    .info-row:last-child {
+      padding-bottom: 0;
+    }
+    .info-divider {
+      height: 1px;
+      background-color: #EDF0F7;
+      width: 100%;
+    }
+    .info-label {
+      font-size: 14px;
       font-weight: 600;
-      margin: 0 0 24px 0;
+      line-height: 16px;
+      letter-spacing: 0.28px;
+      color: #1D2433;
+      text-transform: capitalize;
+    }
+    .info-value {
+      font-size: 14px;
+      font-weight: 400;
+      line-height: 1.3;
+      color: rgba(29, 36, 51, 0.6);
+      text-align: right;
     }
 
-    .content-card p {
-      color: #212121;
+    /* ── Content text ── */
+    .email-body p {
+      color: #1D2433;
+      font-size: 16px;
+      line-height: 1.5;
       margin: 0 0 16px 0;
     }
-
-    .content-card hr {
+    .email-body h1, .email-body h2 {
+      color: #1D2433;
+      margin: 0 0 10px 0;
+    }
+    .email-body hr {
       border: none;
-      border-top: 1px solid #E0E0E0;
+      border-top: 1px solid #EDF0F7;
       margin: 24px 0;
     }
 
-    /* Links */
+    /* ── Links ── */
     a {
-      color: #E53935;
+      color: #FF512D;
       text-decoration: none;
     }
-
     a:hover {
       text-decoration: underline;
     }
 
-    /* Credentials box component */
+    /* ── Button ── */
+    .btn-primary {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      background-color: #FF512D;
+      color: #ffffff !important;
+      font-size: 16px;
+      font-weight: 600;
+      line-height: 16px;
+      letter-spacing: 0.32px;
+      text-decoration: none !important;
+      padding: 12px 18px;
+      border-radius: 12px;
+      border: none;
+      cursor: pointer;
+      text-transform: capitalize;
+    }
+    .btn-primary:hover {
+      background-color: #DE4526;
+    }
+
+    /* ── Credentials box (legacy support) ── */
     .credentials-box {
-      background-color: #F5F5F5;
-      border-radius: 8px;
+      background-color: #F8F9FC;
+      border: 1px solid #EDF0F7;
+      border-radius: 10px;
       padding: 16px 20px;
       margin: 16px 0;
     }
-
     .credentials-row {
       margin: 0 0 8px 0;
       font-size: 15px;
-      color: #212121;
+      color: #1D2433;
     }
-
     .credentials-row:last-child {
       margin-bottom: 0;
     }
 
-    /* Button component */
-    .button-container {
-      text-align: center;
-      margin: 24px 0;
-    }
-
-    .button {
-      display: inline-block;
-      background-color: #E53935;
-      color: #FFFFFF !important;
-      font-size: 16px;
-      font-weight: 600;
-      padding: 14px 32px;
-      border-radius: 8px;
-      text-decoration: none !important;
-      transition: background-color 0.2s ease;
-    }
-
-    .button:hover {
-      background-color: #C62828;
-    }
-
-    /* Footer */
-    .email-footer {
-      text-align: center;
-      padding: 24px;
-      color: #757575;
-      font-size: 14px;
-    }
-
-    .email-footer p {
-      margin: 0 0 4px 0;
-    }
-
-    .email-footer p:last-child {
-      margin-bottom: 0;
-    }
-
-    .email-footer-brand {
-      font-size: 20px;
-      font-weight: 700;
-      color: #212121;
-      margin: 0 0 8px 0;
-    }
-
-    /* Support text */
+    /* ── Support text ── */
     .support-text {
-      color: #757575;
+      color: rgba(29, 36, 51, 0.6);
       font-size: 14px;
     }
 
-    /* Responsive adjustments */
-    @media only screen and (max-width: 600px) {
-      .email-wrapper {
-        padding: 12px;
-      }
+    /* ── Footer ── */
+    .email-footer {
+      background-color: #F5F5F5;
+      padding: 24px 16px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 10px;
+    }
+    .footer-logo img {
+      width: 92px;
+      height: auto;
+      max-height: 40px;
+      object-fit: contain;
+      display: block;
+    }
+    .footer-contact {
+      font-size: 12px;
+      font-weight: 400;
+      line-height: 1.3;
+      color: #1D2433;
+      text-align: center;
+    }
+    .footer-contact a {
+      color: #FF512D;
+      text-decoration: underline;
+    }
+    .footer-copy {
+      font-size: 10px;
+      font-weight: 400;
+      line-height: 1.3;
+      color: rgba(29, 36, 51, 0.6);
+      text-align: center;
+    }
 
-      .content-card {
-        padding: 24px;
+    /* ── Responsive ── */
+    @media only screen and (max-width: 602px) {
+      .email-container {
+        width: 100% !important;
+      }
+      .email-body {
+        padding: 32px 24px 40px;
       }
     }
   </style>
 </head>
 <body>
   <div class="email-wrapper">
-    <!-- Header -->
-    <div class="email-header">
-      {% block header_content %}
-        {% if logo_url %}
-        <img src="{{ logo_url }}" alt="Expertel iQ Logo">
-        {% else %}
-        <p class="email-header-text">expertel iQ</p>
-        {% endif %}
-      {% endblock %}
-    </div>
+    <div class="email-container">
 
-    <!-- Content Card -->
-    <div class="content-card">
-      {% block greeting %}
-      <h1>Hello, {{ nombre }}!</h1>
-      {% endblock %}
+      <!-- Header -->
+      <div class="email-header">
+        <div class="header-bg"></div>
+        {% block header_content %}
+        <div class="header-logo">
+          {% if logo_url %}
+          <img src="{{ logo_url }}" alt="Expertel iQ">
+          {% else %}
+          <span class="header-text">expertel iQ</span>
+          {% endif %}
+        </div>
+        {% endblock %}
+      </div>
 
-      {% block content %}{% endblock %}
+      <!-- Body -->
+      <div class="email-body">
+        {% block greeting %}{% endblock %}
 
-      {% block sign_off %}
-      <hr>
-      <p class="support-text">If you have any questions, contact <a href="mailto:helpdesk@expertel.com">helpdesk@expertel.com</a></p>
-      <p><strong>The Expertel Team</strong></p>
-      {% endblock %}
-    </div>
+        {% block content %}{% endblock %}
+      </div>
 
-    <!-- Footer -->
-    <div class="email-footer">
-      <p class="email-footer-brand">expertel iQ</p>
-      <p>If you have any questions, contact <a href="mailto:helpdesk@expertel.com">helpdesk@expertel.com</a></p>
-      <p>&copy; {% now "Y" %} Expertel iQ. All rights reserved.</p>
+      <!-- Footer -->
+      <div class="email-footer">
+        <div class="footer-logo">
+          {% if footer_logo_url %}
+          <img src="{{ footer_logo_url }}" alt="Expertel iQ">
+          {% else %}
+          <span style="font-size: 16px; font-weight: 700; color: #1D2433;">expertel iQ</span>
+          {% endif %}
+        </div>
+        <p class="footer-contact">
+          If you have any questions, contact
+          <a href="mailto:helpdesk@expertel.com">helpdesk@expertel.com</a>
+        </p>
+        <p class="footer-copy">&copy; {% now "Y" %} Expertel iQ. All rights reserved.</p>
+      </div>
+
     </div>
   </div>
 </body>

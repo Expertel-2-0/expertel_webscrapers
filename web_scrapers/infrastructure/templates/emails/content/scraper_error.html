@@ -1,19 +1,61 @@
 {% extends "emails/base_email.html" %}
-{% block title %}Scraper Error Alert - Expertel iQ{% endblock %}
+{% block title %}Scraper Error Alert – Expertel iQ{% endblock %}
 
 {% block content %}
-<h2>Scraper Run Into an Issue</h2>
-<p>A scraper encountered an error on <strong>{{ error_date }}</strong>.
-Please review the details below and take action to restore normal operation.</p>
+<p class="email-title">Scraper Run Into an Issue</p>
+<p class="email-subtitle">
+  Hi {{ nombre }}, a scraper encountered an error during its latest run on {{ error_date }}.
+  Please review the details below and take action to restore normal operation.
+</p>
 
-<div class="credentials-box">
-  <p class="credentials-row"><strong>Scraper:</strong> {{ scraper_type }}</p>
-  <p class="credentials-row"><strong>Carrier / Source:</strong> {{ carrier_name }}</p>
-  <p class="credentials-row"><strong>Client:</strong> {{ client_name }}</p>
-  <p class="credentials-row"><strong>Account:</strong> {{ account_number }}</p>
-  <p class="credentials-row"><strong>Status:</strong> Failed</p>
-  <p class="credentials-row"><strong>Attempts:</strong> {{ retry_count }} of {{ max_retries }} retries failed</p>
+<div class="info-card">
+  <div class="info-row">
+    <span class="info-label">Scraper</span>
+    <span class="info-value">{{ scraper_type }}</span>
+  </div>
+
+  <div class="info-divider"></div>
+
+  <div class="info-row">
+    <span class="info-label">Carrier / Source</span>
+    <span class="info-value">{{ carrier_name }}</span>
+  </div>
+
+  <div class="info-divider"></div>
+
+  <div class="info-row">
+    <span class="info-label">Client</span>
+    <span class="info-value">{{ client_name }}</span>
+  </div>
+
+  <div class="info-divider"></div>
+
+  <div class="info-row">
+    <span class="info-label">Account</span>
+    <span class="info-value">{{ account_number }}</span>
+  </div>
+
+  <div class="info-divider"></div>
+
+  <div class="info-row">
+    <span class="info-label">Status</span>
+    <span class="info-value">Failed</span>
+  </div>
+
+  <div class="info-divider"></div>
+
+  <div class="info-row">
+    <span class="info-label">Error</span>
+    <span class="info-value">{{ error_message }}</span>
+  </div>
+
+  <div class="info-divider"></div>
+
+  <div class="info-row">
+    <span class="info-label">Attempts</span>
+    <span class="info-value">{{ retry_count }} of {{ max_retries }} retries failed</span>
+  </div>
 </div>
 
-{% include "emails/components/_button.html" with url=logs_url text="View Error Logs" %}
+<a href="{{ logs_url }}" class="btn-primary">View Error Logs</a>
 {% endblock %}

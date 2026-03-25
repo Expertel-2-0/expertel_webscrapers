@@ -208,8 +208,9 @@ class ATTMonthlyReportsScraperStrategy(MonthlyReportsScraperStrategy):
             # Si falla, no podemos continuar ya que descargaríamos archivos de otra cuenta
             if not self._ensure_filters_configured(billing_cycle, needs_date_filter=True):
                 error_msg = (
-                    f"FATAL: Failed to configure account filter for account {billing_cycle.account.number}. "
-                    "Cannot proceed with downloads as files may belong to wrong account."
+                    f"FATAL: Failed to configure filters for account {billing_cycle.account.number}. "
+                    "Check previous logs for details on which filter (account or date) failed. "
+                    "Cannot proceed with downloads."
                 )
                 self.logger.error(error_msg)
                 self._reset_to_main_screen()
