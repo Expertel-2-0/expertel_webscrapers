@@ -98,7 +98,6 @@ class ScraperJobService:
 
         # Build base query filter for PENDING jobs
         query_filter = Q(status=ScraperJobStatus.PENDING)
-        query_filter &= Q(id=976)
 
 
         if include_null_available_at:
