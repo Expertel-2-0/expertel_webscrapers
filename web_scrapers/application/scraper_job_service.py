@@ -272,7 +272,21 @@ class ScraperJobService:
         """
         available_jobs = self.get_available_scraper_jobs(include_null_available_at)
 
-        return [self.get_scraper_job_with_complete_context(job.id) for job in available_jobs]
+        results = []
+        for job in available_jobs:
+            try:
+                results.append(self.get_scraper_job_with_complete_context(job.id))
+            except Exception as e:
+                self.logger.error(
+                    f"Failed to build context for job {job.id}: {e}. "
+                    f"Marking as failed and continuing with remaining jobs."
+                )
+                self.handle_job_result(
+                    job.id,
+                    success=False,
+                    error_message=f"Failed to build job context: {e}",
+                )
+        return results
 
     def get_scraper_statistics(self) -> ScraperStatistics:
         """

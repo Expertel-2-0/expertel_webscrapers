@@ -116,7 +116,7 @@ class AccountRepository(DjangoFullRepository[AccountEntity, Account]):
             workspace_id=model.workspace.id,
             carrier_id=model.carrier.id,
             account_type=model.account_type,
-            billing_day=model.billing_day,
+            billing_day=model.billing_day if model.billing_day is not None else 15,
             description=model.description if model.description else None,
         )
 
