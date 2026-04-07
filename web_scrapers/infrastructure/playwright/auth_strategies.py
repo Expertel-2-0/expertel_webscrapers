@@ -295,13 +295,29 @@ class TelusAuthStrategy(AuthBaseStrategy):
                     return False
 
             email_field_xpath = '//*[@id="idtoken1"]'
+            email_field_fallback = '/html/body/div[1]/div/div[1]/div/div/div[1]/form/div[1]/div[1]/div[3]/input'
             self.logger.info(f"Entering email: {credentials.username}")
-            self.browser_wrapper.clear_and_type(email_field_xpath, credentials.username)
+            if self.browser_wrapper.is_element_visible(email_field_xpath, timeout=3000):
+                self.browser_wrapper.clear_and_type(email_field_xpath, credentials.username)
+            elif self.browser_wrapper.is_element_visible(email_field_fallback, timeout=3000):
+                self.logger.info("Using fallback XPath for email field")
+                self.browser_wrapper.clear_and_type(email_field_fallback, credentials.username)
+            else:
+                self.logger.error("Email field not found with any selector")
+                return False
             time.sleep(1)
 
             password_field_xpath = '//*[@id="idtoken2"]'
+            password_field_fallback = '/html/body/div[1]/div/div[1]/div/div/div[1]/form/div[2]/div[3]/input'
             self.logger.info("Entering password...")
-            self.browser_wrapper.clear_and_type(password_field_xpath, credentials.password)
+            if self.browser_wrapper.is_element_visible(password_field_xpath, timeout=3000):
+                self.browser_wrapper.clear_and_type(password_field_xpath, credentials.password)
+            elif self.browser_wrapper.is_element_visible(password_field_fallback, timeout=3000):
+                self.logger.info("Using fallback XPath for password field")
+                self.browser_wrapper.clear_and_type(password_field_fallback, credentials.password)
+            else:
+                self.logger.error("Password field not found with any selector")
+                return False
             time.sleep(1)
 
             login_button_xpath = '//*[@id="login-btn"]'
@@ -384,6 +400,8 @@ class TelusAuthStrategy(AuthBaseStrategy):
                 "//input[@id='idtoken1']",  # Campo de email en login
                 "//input[@id='idtoken2']",  # Campo de password en login
                 "//*[@id='login-btn']",  # Boton de login
+                "/html/body/div[1]/div/div[1]/div/div/div[1]/form/div[1]/div[1]/div[3]/input",  # Fallback email
+                "/html/body/div[1]/div/div[1]/div/div/div[1]/form/div[2]/div[3]/input",  # Fallback password
             ]
 
             for xpath in login_page_indicators:
@@ -443,14 +461,76 @@ class TelusAuthStrategy(AuthBaseStrategy):
             return False
 
     def _wait_for_cloudflare_resolution(self, max_wait: int = 60) -> bool:
-        """Espera a que Cloudflare se auto-resuelva (Chrome real lo resuelve solo)."""
+        """Espera a que Cloudflare se auto-resuelva, si no, intenta click en el checkbox."""
         intervals = max_wait // 5
         for i in range(intervals):
             time.sleep(5)
             if not self._is_cloudflare_challenge():
                 self.logger.info("Cloudflare challenge resolved after %d seconds", (i + 1) * 5)
                 return True
+
+        # Auto-resolve failed, try clicking the checkbox
+        self.logger.warning("Cloudflare did not auto-resolve, attempting to click challenge checkbox...")
+        if self._click_cloudflare_checkbox():
+            # Wait for resolution after click
+            for i in range(6):
+                time.sleep(5)
+                if not self._is_cloudflare_challenge():
+                    self.logger.info("Cloudflare resolved after clicking checkbox")
+                    return True
+
+        self.logger.error("Cloudflare challenge could not be resolved")
         return False
+
+    def _click_cloudflare_checkbox(self) -> bool:
+        """Intenta hacer click en el checkbox de Cloudflare 'I'm not a robot'."""
+        try:
+            # Cloudflare turnstile renders inside an iframe
+            cf_iframe_selectors = [
+                "//iframe[contains(@src, 'challenges.cloudflare.com')]",
+                "//iframe[contains(@src, 'turnstile')]",
+                "//iframe[contains(@title, 'challenge')]",
+            ]
+            for selector in cf_iframe_selectors:
+                try:
+                    if self.browser_wrapper.is_element_visible(selector, timeout=3000):
+                        frame_element = self.browser_wrapper.page.query_selector(selector)
+                        if frame_element:
+                            frame = frame_element.content_frame()
+                            if frame:
+                                # Try clicking the checkbox inside the iframe
+                                checkbox = frame.query_selector("input[type='checkbox']") or frame.query_selector(".ctp-checkbox-label") or frame.query_selector("#challenge-stage")
+                                if checkbox:
+                                    checkbox.click()
+                                    self.logger.info("Clicked Cloudflare checkbox via iframe")
+                                    return True
+                                # Fallback: click center of iframe
+                                frame_element.click()
+                                self.logger.info("Clicked Cloudflare iframe element directly")
+                                return True
+                except Exception:
+                    continue
+
+            # Fallback: try direct selectors outside iframe
+            direct_selectors = [
+                "//div[contains(@class, 'cf-turnstile')]",
+                "//*[@id='challenge-stage']",
+                "//input[contains(@class, 'checkbox')]",
+            ]
+            for selector in direct_selectors:
+                try:
+                    if self.browser_wrapper.is_element_visible(selector, timeout=2000):
+                        self.browser_wrapper.click_element(selector)
+                        self.logger.info(f"Clicked Cloudflare element: {selector}")
+                        return True
+                except Exception:
+                    continue
+
+            self.logger.warning("Could not find Cloudflare checkbox to click")
+            return False
+        except Exception as e:
+            self.logger.error(f"Error clicking Cloudflare checkbox: {e}")
+            return False
 
     def _dismiss_cookie_banner(self) -> None:
         """Dismiss cookie consent banner if present."""

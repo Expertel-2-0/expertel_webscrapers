@@ -80,7 +80,7 @@ class TelusDailyUsageScraperStrategy(DailyUsageScraperStrategy):
 
             # 7. Click on "Go to Telus IQ"
             telus_iq_button_xpath = (
-                "/html/body/div[5]/div/div/div/div[1]/div/div[3]/div/div/div/div/div/div/div[3]/div/div/a"
+                "/html/body/div[5]/div/div/div/div[1]/div/div[3]/div/div/div/div/div/div[3]/div/div/a"
             )
             self.logger.info("Clicking on 'Go to Telus IQ' button...")
             self.browser_wrapper.click_element(telus_iq_button_xpath)
