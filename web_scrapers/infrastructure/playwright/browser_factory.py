@@ -372,7 +372,6 @@ class BrowserDriverFactory:
             "timeout": int(os.getenv("BROWSER_TIMEOUT", "30000")),
             "viewport_width": int(os.getenv("BROWSER_VIEWPORT_WIDTH", "1920")),
             "viewport_height": int(os.getenv("BROWSER_VIEWPORT_HEIGHT", "1080")),
-            "devtools": os.getenv("BROWSER_DEVTOOLS", "false").lower() == "true",
             "no_sandbox": os.getenv("BROWSER_NO_SANDBOX", "false").lower() == "true",
             "disable_web_security": os.getenv("BROWSER_DISABLE_WEB_SECURITY", "false").lower() == "true",
         }

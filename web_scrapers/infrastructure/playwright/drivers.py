@@ -17,7 +17,6 @@ class BaseNavigatorDriverBuilder(NavigatorDriverBuilder):
             "headless",
             "slow_mo",
             "timeout",
-            "devtools",
             "proxy",
             "downloads_path",
             "executable_path",
@@ -48,9 +47,6 @@ class BaseNavigatorDriverBuilder(NavigatorDriverBuilder):
 
         if "timeout" in self.options:
             launch_options["timeout"] = self.options["timeout"]
-
-        if "devtools" in self.options:
-            launch_options["devtools"] = self.options["devtools"]
 
         if "proxy" in self.options:
             launch_options["proxy"] = self.options["proxy"]
