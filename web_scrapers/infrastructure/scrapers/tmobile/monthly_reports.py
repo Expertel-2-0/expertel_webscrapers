@@ -1093,37 +1093,75 @@ class TMobileMonthlyReportsScraperStrategy(MonthlyReportsScraperStrategy):
             self._reset_to_main_screen()
             time.sleep(wait_time_seconds)
 
-            # ========== PHASE 4: Download completed reports ==========
-            self.logger.info("\n--- PHASE 4: Downloading completed reports ---")
+            # ========== PHASE 4: Download completed reports (with retries for pending) ==========
+            max_download_retries = 3
+            retry_wait_seconds = 180  # 3 minutes between retries
+            expected_report_count = len(billing_cycle.billing_cycle_files) if billing_cycle.billing_cycle_files else 5
+            downloaded_report_names = set()
 
-            if not self._navigate_to_reporting():
-                self.logger.error("Could not navigate to Reporting")
-                return downloaded_files
+            for attempt in range(max_download_retries + 1):
+                if attempt == 0:
+                    self.logger.info("\n--- PHASE 4: Downloading completed reports ---")
+                else:
+                    missing = set(REPORT_NAME_TO_SLUG.keys()) - downloaded_report_names
+                    self.logger.info(
+                        f"\n--- PHASE 4: Retry {attempt}/{max_download_retries} "
+                        f"- Looking for pending reports: {missing} ---"
+                    )
+                    self.logger.info(f"Waiting {retry_wait_seconds // 60} minutes before retry...")
+                    self._reset_to_main_screen()
+                    time.sleep(retry_wait_seconds)
 
-            if not self._click_my_reports_tab():
-                self.logger.error("Could not switch to My reports tab")
-                return downloaded_files
+                if not self._navigate_to_reporting():
+                    self.logger.error("Could not navigate to Reporting")
+                    continue
 
-            time.sleep(3)
-
-            completed_reports = self._find_completed_reports_for_today(account_number, billing_cycle)
-
-            if not completed_reports:
-                self.logger.warning("No completed reports found for today")
-                self.logger.info("Waiting 60 additional seconds and retrying...")
-                time.sleep(60)
-                self.browser_wrapper.page.reload()
-                time.sleep(5)
                 if not self._click_my_reports_tab():
-                    return downloaded_files
+                    self.logger.error("Could not switch to My reports tab")
+                    continue
+
                 time.sleep(3)
+
                 completed_reports = self._find_completed_reports_for_today(account_number, billing_cycle)
 
-            for report_info in completed_reports:
-                file_info = self._download_single_report(report_info, billing_cycle_file_map)
-                if file_info:
-                    downloaded_files.append(file_info)
-                time.sleep(2)
+                if not completed_reports and attempt == 0:
+                    self.logger.warning("No completed reports found for today")
+                    self.logger.info("Waiting 60 additional seconds and retrying...")
+                    time.sleep(60)
+                    self.browser_wrapper.page.reload()
+                    time.sleep(5)
+                    if not self._click_my_reports_tab():
+                        continue
+                    time.sleep(3)
+                    completed_reports = self._find_completed_reports_for_today(account_number, billing_cycle)
+
+                # Filter out already downloaded reports
+                new_reports = [r for r in completed_reports if r["name"] not in downloaded_report_names]
+
+                if new_reports:
+                    self.logger.info(f"New reports to download: {len(new_reports)}")
+                    for report_info in new_reports:
+                        file_info = self._download_single_report(report_info, billing_cycle_file_map)
+                        if file_info:
+                            downloaded_files.append(file_info)
+                            downloaded_report_names.add(report_info["name"])
+                        time.sleep(2)
+                elif attempt > 0:
+                    self.logger.info("No new reports available yet")
+
+                # Check if all reports downloaded
+                if len(downloaded_files) >= expected_report_count:
+                    self.logger.info("All expected reports downloaded successfully")
+                    break
+
+                if attempt < max_download_retries:
+                    self.logger.info(
+                        f"Downloaded {len(downloaded_files)}/{expected_report_count} reports so far"
+                    )
+                else:
+                    self.logger.warning(
+                        f"Max retries reached. Downloaded {len(downloaded_files)}/{expected_report_count} reports"
+                    )
 
             self._reset_to_main_screen()
 

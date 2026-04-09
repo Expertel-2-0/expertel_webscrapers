@@ -359,19 +359,9 @@ class VerizonMonthlyReportsScraperStrategy(MonthlyReportsScraperStrategy):
                 self._navigate_back_to_reports()
                 return None
 
-            # Configure Bill cycle from and Bill cycle to
-            start_month_option = self._format_short_month_option(billing_cycle.start_date)
-            end_month_option = self._format_short_month_option(billing_cycle.end_date)
-
-            self.logger.info(f"Setting Bill cycle from: {start_month_option}")
-            if not self._select_bill_cycle_from(start_month_option):
-                self.logger.error(f"Failed to set Bill cycle from: {start_month_option}, aborting")
-                self._navigate_back_to_reports()
-                return None
-
-            self.logger.info(f"Setting Bill cycle to: {end_month_option}")
-            if not self._select_bill_cycle_to(end_month_option):
-                self.logger.error(f"Failed to set Bill cycle to: {end_month_option}, aborting")
+            # Configure date range (this report uses date picker inputs, not month dropdowns)
+            if not self._set_date_range(billing_cycle.start_date, billing_cycle.end_date):
+                self.logger.error("Failed to set date range, aborting")
                 self._navigate_back_to_reports()
                 return None
 
@@ -624,6 +614,48 @@ class VerizonMonthlyReportsScraperStrategy(MonthlyReportsScraperStrategy):
 
         except Exception as e:
             self.logger.error(f"Error selecting Bill cycle to: {str(e)}")
+            return False
+
+    def _set_date_range(self, start_date: date, end_date: date) -> bool:
+        """Sets date range using Material date picker inputs (used by Activation & Deactivation report).
+
+        Args:
+            start_date: The start date of the billing cycle.
+            end_date: The end date of the billing cycle.
+
+        Returns:
+            True if dates were set successfully, False otherwise.
+        """
+        try:
+            date_from_css = "#dateFrom"
+            date_to_css = "#dateTo"
+
+            # Format dates as MM/DD/YYYY for the Material date picker
+            from_date_str = start_date.strftime("%m/%d/%Y")
+            to_date_str = end_date.strftime("%m/%d/%Y")
+
+            self.logger.info(f"Setting date range: {from_date_str} - {to_date_str}")
+
+            if not self.browser_wrapper.is_element_visible(date_from_css, timeout=5000, selector_type="css"):
+                self.logger.error("Date From input not found")
+                return False
+
+            self.browser_wrapper.clear_and_type(date_from_css, from_date_str, selector_type="css")
+            self.logger.info(f"Set Date From: {from_date_str}")
+            time.sleep(1)
+
+            if not self.browser_wrapper.is_element_visible(date_to_css, timeout=5000, selector_type="css"):
+                self.logger.error("Date To input not found")
+                return False
+
+            self.browser_wrapper.clear_and_type(date_to_css, to_date_str, selector_type="css")
+            self.logger.info(f"Set Date To: {to_date_str}")
+            time.sleep(1)
+
+            return True
+
+        except Exception as e:
+            self.logger.error(f"Error setting date range: {str(e)}")
             return False
 
     def _click_apply_filters(self):

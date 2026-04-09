@@ -547,6 +547,8 @@ class BrowserDriverFactory:
                 "--disable-backgrounding-occluded-windows",
                 "--disable-renderer-backgrounding",
                 "--disable-background-timer-throttling",
+                "--window-size=1920,1080",
+                "--start-maximized",
                 "about:blank",
             ],
             stdout=subprocess.DEVNULL,

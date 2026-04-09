@@ -271,14 +271,9 @@ class TelusAuthStrategy(AuthBaseStrategy):
             # Step 4: Handle potential blocking popup with skip button
             self._try_skip_popup()
 
-            my_telus_button_xpath = '//*[@id="ge-top-nav"]/ul[2]/li[3]/button'
-            self.logger.info("Clicking My Telus...")
-            self.browser_wrapper.click_element(my_telus_button_xpath)
-            time.sleep(2)
-
-            my_telus_web_button_xpath = '//*[@id="ge-top-nav"]/ul[2]/li[3]/nav/div/ul/li[1]/a'
-            self.logger.info("Clicking My Telus Web...")
-            self.browser_wrapper.click_element(my_telus_web_button_xpath)
+            # Navigate directly to My Telus — avoids fragile nav button XPaths
+            self.logger.info("Navigating to My Telus...")
+            self.browser_wrapper.goto("https://www.telus.com/my-telus")
             self.browser_wrapper.wait_for_page_load()
             time.sleep(3)
 
@@ -1440,11 +1435,11 @@ class VerizonAuthStrategy(AuthBaseStrategy):
                 self.logger.info("Login form detected - waiting 15 seconds for potential redirect...")
                 time.sleep(15)
 
-            # Now check for welcome label
-            welcome_label_xpath = '//*[@id="searchContainer"]/div[2]/label'
-            if self.browser_wrapper.is_element_visible(welcome_label_xpath, timeout=10000):
-                label_text = self.browser_wrapper.page.locator(welcome_label_xpath).text_content()
-                if label_text and "welcome" in label_text.lower():
+            # Now check for welcome label (flexible: match any element containing "Welcome")
+            welcome_xpath = '//h2[contains(text(), "Welcome")]'
+            if self.browser_wrapper.is_element_visible(welcome_xpath, timeout=10000):
+                label_text = self.browser_wrapper.page.locator(welcome_xpath).first.text_content()
+                if label_text:
                     self.logger.info(f"Welcome label found: {label_text.strip()}")
                     return True
 

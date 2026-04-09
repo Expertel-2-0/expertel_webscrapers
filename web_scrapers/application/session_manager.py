@@ -332,9 +332,13 @@ class SessionManager:
             return False
 
     def cleanup(self) -> None:
-        if self.session_state.is_logged_in():
-            self.force_logout()
+        if self._current_auth_strategy:
+            try:
+                self._current_auth_strategy.logout()
+            except Exception as e:
+                self.logger.warning(f"Logout failed during cleanup: {e}")
 
+        self.session_state.set_logged_out()
         self._current_auth_strategy = None
         self._scraper_type = None
         self._current_login_url = None
