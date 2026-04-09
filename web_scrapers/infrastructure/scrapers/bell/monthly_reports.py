@@ -1166,17 +1166,17 @@ class BellMonthlyReportsScraperStrategy(MonthlyReportsScraperStrategy):
     def _export_report_to_excel(self, report_slug: str) -> None:
         """Export the current report to Excel."""
         try:
-            # Step 1: Click Export button
-            export_xpath = "/html/body/div[2]/app-base/section/block-ui/div/div/div/app-abi/app-ana-page/div[1]/div/div[3]/app-abi-toolbar/app-global-buttonbar/section/a[1]"
+            # Step 1: Click Export button in toolbar
+            export_xpath = "//*[@id='export-btn']"
             self.browser_wrapper.click_element(export_xpath)
             time.sleep(2)
 
-            # Step 2: Click Excel option
-            excel_xpath = "/html/body/ngb-popover-window/div[2]/div/div[6]/div"
-            self.browser_wrapper.click_element(excel_xpath)
+            # Step 2: Click XLSX option in popover (search by icon class, avoids dynamic Angular IDs)
+            xlsx_xpath = "//ngb-popover-window//div[.//i[contains(@class, 'line-XLSX')]]"
+            self.browser_wrapper.click_element(xlsx_xpath)
             time.sleep(2)
 
-            # Step 3: Click Export button in the dialog
+            # Step 3: Click Export button in the confirmation dialog
             export_btn_xpath = "//*[@id='btn-bc-export']"
             self.browser_wrapper.click_element(export_btn_xpath)
             time.sleep(10)
