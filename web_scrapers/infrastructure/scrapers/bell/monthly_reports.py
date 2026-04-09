@@ -1205,9 +1205,7 @@ class BellMonthlyReportsScraperStrategy(MonthlyReportsScraperStrategy):
 
         try:
             # Step 1: Click on the alerts icon
-            alerts_icon_xpath = (
-                "/html/body/div[2]/app-base/section/block-ui/div/div/app-aside-left/div/div/div/ul/li[6]"
-            )
+            alerts_icon_xpath = "//*[@id='kt_aside_menu']/ul/li[8]"
             self.logger.info("Clicking alerts/notifications icon...")
             self.browser_wrapper.click_element(alerts_icon_xpath)
             time.sleep(3)
