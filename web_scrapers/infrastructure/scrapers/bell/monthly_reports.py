@@ -1231,7 +1231,7 @@ class BellMonthlyReportsScraperStrategy(MonthlyReportsScraperStrategy):
                     self.logger.info(f"Searching for notification: '{report_slug}'...")
 
                     # Find notification by text content and validate timestamp (max 60 minutes old)
-                    notification_xpath = self._find_notification_by_report_slug(report_slug, max_age_minutes=60)
+                    notification_xpath = self._find_notification_by_report_slug(report_slug, max_age_minutes=30)
 
                     if not notification_xpath:
                         self.logger.warning(f"Skipping '{report_slug}' - notification not found or too old")
@@ -1277,6 +1277,15 @@ class BellMonthlyReportsScraperStrategy(MonthlyReportsScraperStrategy):
 
                     else:
                         self.logger.error(f"Download failed for '{report_slug}' - no file path returned")
+
+                    # Clear the notification to avoid duplicates in future runs
+                    try:
+                        clear_icon_xpath = f"{notification_xpath}//em[contains(@class, 'line-close')]"
+                        self.browser_wrapper.click_element(clear_icon_xpath)
+                        time.sleep(1)
+                        self.logger.info(f"Notification cleared for '{report_slug}'")
+                    except Exception as clear_e:
+                        self.logger.warning(f"Could not clear notification for '{report_slug}': {clear_e}")
 
                     time.sleep(3)
 
