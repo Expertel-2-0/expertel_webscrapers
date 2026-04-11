@@ -93,15 +93,13 @@ class BellPDFInvoiceScraperStrategy(PDFInvoiceScraperStrategy):
         self.logger.info("Configuring PDF download options...")
 
         # Verificar que estamos en la pagina correcta
-        complete_invoice_radiobtn_xpath = (
-            "/html/body/div[1]/main/div[1]/uxp-flow/div[2]/download-options/div/div/section[1]/div[1]/label[2]/input"
-        )
+        complete_invoice_radiobtn_xpath = "//input[@name='invoiceSelect' and @value='Y']"
         if not self.browser_wrapper.find_element_by_xpath(complete_invoice_radiobtn_xpath, timeout=5000):
             raise Exception("No se encontro el radio button de opciones de descarga")
 
         # complete invoice (click)
         complete_invoice_label_xpath = (
-            "/html/body/div[1]/main/div[1]/uxp-flow/div[2]/download-options/div/div/section[1]/div[1]/label[2]/span[2]"
+            "//label[.//input[@name='invoiceSelect' and @value='Y']]//span[@class='txt']"
         )
         self.browser_wrapper.click_element(complete_invoice_label_xpath)
         time.sleep(5)
@@ -192,9 +190,7 @@ class BellPDFInvoiceScraperStrategy(PDFInvoiceScraperStrategy):
 
         try:
             # download button (click) - usando nuevos XPaths
-            download_button_xpath = (
-                "/html/body/div[1]/main/div[1]/uxp-flow/div[2]/download-options/div/div/div/div/button[2]"
-            )
+            download_button_xpath = "//*[@id='continueButton']"
             self.browser_wrapper.click_element(download_button_xpath)
             self.logger.info("Initial download button clicked")
 
