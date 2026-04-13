@@ -119,30 +119,11 @@ class BellPDFInvoiceScraperStrategy(PDFInvoiceScraperStrategy):
 
         self.logger.info(f"Searching checkbox for: {target_period}")
 
-        try:
-            # Buscar por texto exacto en el label
-            checkbox_xpath = f"//label[contains(., '{target_period}')]/span[1]"
-            if self.browser_wrapper.find_element_by_xpath(checkbox_xpath, timeout=3000):
-                self.browser_wrapper.click_element(checkbox_xpath)
-                self.logger.info(f"Checkbox selected for: {target_period}")
-                return
-        except:
-            self.logger.warning(f"Exact checkbox not found for {target_period}")
-
-        try:
-            self.logger.info("Searching for available checkboxes...")
-            # Buscar todos los checkboxes disponibles en la seccion
-            checkboxes_section_xpath = (
-                "/html/body/div[1]/main/div[1]/uxp-flow/div[3]/download-options/div/div/section[2]"
-            )
-
-            # Como fallback, usar el primer checkbox disponible
-            fallback_checkbox_xpath = f"{checkboxes_section_xpath}//div[@class='grd-col-1-4'][1]//label/span[1]"
-            self.browser_wrapper.click_element(fallback_checkbox_xpath)
-            self.logger.info("Fallback checkbox selected (first available option)")
-        except Exception as e:
-            self.logger.error(f"Error selecting date checkbox: {str(e)}")
-            raise e
+        checkbox_xpath = f"//label[contains(., '{target_period}')]/span[1]"
+        if not self.browser_wrapper.find_element_by_xpath(checkbox_xpath, timeout=3000):
+            raise Exception(f"Checkbox not found for period: {target_period}")
+        self.browser_wrapper.click_element(checkbox_xpath)
+        self.logger.info(f"Checkbox selected for: {target_period}")
 
         time.sleep(5)
 
@@ -196,9 +177,7 @@ class BellPDFInvoiceScraperStrategy(PDFInvoiceScraperStrategy):
 
             # wait 2 minutes for button to appear then click - usando nuevos XPaths
             self.logger.info("Waiting 2 minutes for final download button to appear...")
-            final_download_button_xpath = (
-                "/html/body/div[1]/main/div[1]/uxp-flow/div[3]/confirmation/div/div/section[1]/button[1]"
-            )
+            final_download_button_xpath = "//*[@id='downloadPDFNOWBtn']"
             self.browser_wrapper.wait_for_element(final_download_button_xpath, timeout=120000)  # 2 minutes in ms
 
             # Descargar archivo PDF usando expect_download_and_click
