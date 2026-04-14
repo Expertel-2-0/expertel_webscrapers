@@ -1,4 +1,5 @@
 import json
+import threading
 import time
 from abc import ABC, abstractmethod
 from typing import Optional
@@ -42,44 +43,69 @@ class AuthBaseStrategy(ABC):
         url = f"{endpoint_url}?email_alias={email_alias}"
         print(f"Connecting to MFA SSE stream: {url}")
 
-        try:
-            with requests.get(url, stream=True, timeout=timeout) as response:
-                response.raise_for_status()
+        result: list[Optional[str]] = [None]
+        exc: list[Optional[Exception]] = [None]
+        response_ref: list = [None]
 
-                current_event = None
-                for line in response.iter_lines(decode_unicode=True):
-                    if not line:
-                        continue
-
-                    if line.startswith("event:"):
-                        current_event = line[6:].strip()
-                    elif line.startswith("data:"):
-                        data_str = line[5:].strip()
-                        try:
-                            data = json.loads(data_str)
-                        except json.JSONDecodeError:
+        def _fetch() -> None:
+            try:
+                with requests.get(url, stream=True, timeout=30) as response:
+                    response_ref[0] = response
+                    response.raise_for_status()
+                    current_event = None
+                    for line in response.iter_lines(decode_unicode=True):
+                        if not line:
                             continue
+                        if line.startswith("event:"):
+                            current_event = line[6:].strip()
+                        elif line.startswith("data:"):
+                            data_str = line[5:].strip()
+                            try:
+                                data = json.loads(data_str)
+                            except json.JSONDecodeError:
+                                continue
+                            if current_event == "endpoint_error":
+                                error_msg = data.get("message", "Unknown error from MFA endpoint")
+                                print(f"MFA endpoint error: {error_msg}")
+                                exc[0] = MFACodeError(error_msg)
+                                return
+                            if current_event == event_type:
+                                value = data.get(event_type)
+                                if value:
+                                    print(f"MFA {event_type} received: {value}")
+                                    result[0] = str(value)
+                                    return
+                            if current_event == "done":
+                                exc[0] = MFACodeError(f"Stream ended without providing a {event_type}")
+                                return
+                exc[0] = MFACodeError(f"Stream closed unexpectedly without {event_type} or error")
+            except requests.exceptions.Timeout:
+                exc[0] = MFACodeError("Timeout connecting to MFA SSE endpoint")
+            except requests.exceptions.RequestException as e:
+                exc[0] = MFACodeError(f"Error connecting to MFA SSE endpoint: {str(e)}")
+            except Exception:
+                pass  # Thread interrupted by response.close()
 
-                        if current_event == "endpoint_error":
-                            error_msg = data.get("message", "Unknown error from MFA endpoint")
-                            print(f"MFA endpoint error: {error_msg}")
-                            raise MFACodeError(error_msg)
+        thread = threading.Thread(target=_fetch, daemon=True)
+        thread.start()
+        thread.join(timeout=timeout)
 
-                        if current_event == event_type:
-                            value = data.get(event_type)
-                            if value:
-                                print(f"MFA {event_type} received: {value}")
-                                return str(value)
+        if thread.is_alive():
+            if response_ref[0] is not None:
+                try:
+                    response_ref[0].close()
+                except Exception:
+                    pass
+            thread.join(timeout=5)
+            raise MFACodeError(f"SSE stream timed out after {timeout}s without providing a {event_type}")
 
-                        if current_event == "done":
-                            raise MFACodeError(f"Stream ended without providing a {event_type}")
+        if exc[0] is not None:
+            raise exc[0]
 
-            raise MFACodeError(f"Stream closed unexpectedly without {event_type} or error")
+        if result[0] is None:
+            raise MFACodeError(f"Stream ended without providing a {event_type}")
 
-        except requests.exceptions.Timeout:
-            raise MFACodeError("Timeout connecting to MFA SSE endpoint")
-        except requests.exceptions.RequestException as e:
-            raise MFACodeError(f"Error connecting to MFA SSE endpoint: {str(e)}")
+        return result[0]
 
     @abstractmethod
     def login(self, credentials: Credentials) -> bool:
