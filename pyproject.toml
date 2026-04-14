@@ -44,6 +44,7 @@ playwright-stealth = "^2.0.0"
 2captcha-python = "^2.0.3"
 patchright = "^1.58.2"
 capsolver-extension-python = "^1.0.3"
+google-genai = "^1.73.0"
 
 
 [build-system]

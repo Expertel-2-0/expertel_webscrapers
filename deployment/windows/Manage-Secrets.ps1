@@ -69,6 +69,7 @@ $SecretsRegistry = @(
     @{ Path = "azure/client-secret";  Type = "S"; Required = "R"; Description = "Azure AD client secret";  Prompt = "Azure Client Secret" },
     @{ Path = "novnc/password";       Type = "S"; Required = "R"; Description = "noVNC access password";   Prompt = "noVNC Password" },
     @{ Path = "anthropic/api-key";    Type = "S"; Required = "O"; Description = "Anthropic API key";       Prompt = "Anthropic API Key" },
+    @{ Path = "gemini/api-key";      Type = "S"; Required = "O"; Description = "Gemini API key";         Prompt = "Gemini API Key" },
     @{ Path = "email/host-user";      Type = "P"; Required = "O"; Description = "SMTP host user";          Prompt = "Email SMTP Host User" },
     @{ Path = "email/host-password";  Type = "S"; Required = "O"; Description = "SMTP host password";      Prompt = "Email SMTP Host Password" },
     @{ Path = "slack/webhook-url";    Type = "S"; Required = "O"; Description = "Slack webhook URL";       Prompt = "Slack Webhook URL" },

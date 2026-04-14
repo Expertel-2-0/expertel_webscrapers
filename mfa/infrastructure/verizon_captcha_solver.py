@@ -1,21 +1,35 @@
-import base64
+import os
 from pathlib import Path
+
 from dotenv import find_dotenv, load_dotenv
-
-import anthropic
-
+from google import genai
+from google.genai import types
 
 ENV_FILE = find_dotenv()
 if ENV_FILE:
     load_dotenv(ENV_FILE)
 
-def extract_text_from_image(image_path: Path) -> str:
-    """Extract text from an image using Claude."""
+CAPTCHA_PROMPT = """
+Transcribe the visible text in this image.
+Rules:
+- Only the text, nothing else
+- No explanations, comments, or additional formatting
+- Only use standard ASCII characters (a-z, A-Z, 0-9)
+- Convert all superscripts and subscripts to regular characters (e.g., ³ → 3, ₂ → 2)
+- No special unicode characters
+- If there is no text, respond with an empty string
+- No spaces in the midle of the string
+- If we get a result like for example "3L D3 S 8" you should return "3LD3S8"
+- If we get a result like for example "4ZNK N6R7" you should return "4ZNKN6R7"
+"""
 
-    client = anthropic.Anthropic()
+
+def extract_text_from_image(image_path: Path) -> str:
+    """Extract text from an image using Gemini."""
+
+    client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
 
     image_data = image_path.read_bytes()
-    base64_image = base64.standard_b64encode(image_data).decode("utf-8")
 
     media_types = {
         ".jpg": "image/jpeg",
@@ -26,43 +40,15 @@ def extract_text_from_image(image_path: Path) -> str:
     }
     media_type = media_types.get(image_path.suffix.lower(), "image/jpeg")
 
-    message = client.messages.create(
-        model="claude-sonnet-4-20250514",
-        max_tokens=4096,
-        messages=[
-            {
-                "role": "user",
-                "content": [
-                    {
-                        "type": "image",
-                        "source": {
-                            "type": "base64",
-                            "media_type": media_type,
-                            "data": base64_image,
-                        },
-                    },
-                    {
-                        "type": "text",
-                        "text": """
-                            Transcribe the visible text in this image.
-                            Rules:
-                            - Only the text, nothing else
-                            - No explanations, comments, or additional formatting
-                            - Only use standard ASCII characters (a-z, A-Z, 0-9)
-                            - Convert all superscripts and subscripts to regular characters (e.g., ³ → 3, ₂ → 2)
-                            - No special unicode characters
-                            - If there is no text, respond with an empty string
-                            - No spaces in the midle of the string
-                            - If we get a result like for example "3L D3 S 8" you should return "3LD3S8"
-                            - If we get a result like for example "4ZNK N6R7" you should return "4ZNKN6R7"
-                            """,
-                    },
-                ],
-            }
+    response = client.models.generate_content(
+        model="gemini-2.5-flash",
+        contents=[
+            types.Part.from_bytes(data=image_data, mime_type=media_type),
+            CAPTCHA_PROMPT,
         ],
     )
 
-    return message.content[0].text
+    return response.text
 
 
 def process_images_folder(folder_name: str = "imagenes") -> dict:

@@ -258,6 +258,7 @@ AZURE_TENANT_ID=$(get_ssm_parameter "/$APP_NAME/$ENVIRONMENT/azure/tenant-id")
 AZURE_CLIENT_SECRET=$(get_ssm_parameter "/$APP_NAME/$ENVIRONMENT/azure/client-secret")
 AZURE_USER_EMAIL=$(get_ssm_parameter "/$APP_NAME/$ENVIRONMENT/azure/user-email")
 ANTHROPIC_API_KEY=$(get_ssm_parameter "/$APP_NAME/$ENVIRONMENT/anthropic/api-key")
+GEMINI_API_KEY=$(get_ssm_parameter "/$APP_NAME/$ENVIRONMENT/gemini/api-key")
 MFA_SERVICE_URL=$(get_ssm_parameter "/$APP_NAME/$ENVIRONMENT/mfa-service/url")
 NOVNC_PASSWORD=$(get_ssm_parameter "/$APP_NAME/$ENVIRONMENT/novnc/password")
 
@@ -303,6 +304,9 @@ USER_EMAIL=$AZURE_USER_EMAIL
 
 # Anthropic
 ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY
+
+# Gemini
+GEMINI_API_KEY=$GEMINI_API_KEY
 
 # MFA Service
 MFA_SERVICE_URL=$MFA_SERVICE_URL

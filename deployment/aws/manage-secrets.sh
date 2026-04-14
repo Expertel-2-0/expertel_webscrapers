@@ -31,6 +31,7 @@ SECRETS_REGISTRY=(
     "azure/client-secret|S|R|Azure AD client secret|Azure Client Secret"
     "novnc/password|S|R|noVNC access password|noVNC Password"
     "anthropic/api-key|S|O|Anthropic API key|Anthropic API Key"
+    "gemini/api-key|S|O|Gemini API key|Gemini API Key"
     "email/host-user|P|O|SMTP host user|Email SMTP Host User"
     "email/host-password|S|O|SMTP host password|Email SMTP Host Password"
     "slack/webhook-url|S|O|Slack webhook URL|Slack Webhook URL"
