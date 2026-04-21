@@ -8,7 +8,8 @@ from typing import Any, Dict, List, Optional
 
 from django.conf import settings
 from django.db import transaction
-from django.db.models import Case, Q, Value, When
+from django.db.models import Case, F, Q, Value, When
+from django.db.models.functions import Coalesce, Concat
 from django.utils import timezone
 
 from web_scrapers.application.services.email_service import DjangoEmailBackend, EmailService
@@ -96,8 +97,23 @@ class ScraperJobService:
         """
         current_time = timezone.now()
 
+        # Orphan jobs (scraper_config IS NULL) are unrecoverable — mark them ERROR final
+        # in a single UPDATE so they don't cycle through retries uselessly.
+        orphan_log_entry = f"\n[{current_time.strftime('%Y-%m-%d %H:%M:%S')}] ERROR FINAL: orphan job — missing scraper_config"
+        with transaction.atomic():
+            orphan_count = DjangoScraperJob.objects.filter(
+                status=ScraperJobStatus.PENDING,
+                scraper_config__isnull=True,
+            ).update(
+                status=ScraperJobStatus.ERROR,
+                completed_at=current_time,
+                log=Concat(Coalesce(F("log"), Value("")), Value(orphan_log_entry)),
+            )
+        if orphan_count:
+            logger.error(f"Marked {orphan_count} orphan scraper_jobs as ERROR (missing scraper_config)")
+
         # Build base query filter for PENDING jobs
-        query_filter = Q(status=ScraperJobStatus.PENDING)
+        query_filter = Q(status=ScraperJobStatus.PENDING) & Q(scraper_config__isnull=False)
 
 
         if include_null_available_at:
@@ -167,7 +183,18 @@ class ScraperJobService:
             .order_by("type_order", "available_at")
         )
 
-        return [self.scraper_job_repo.to_entity(job) for job in django_jobs]
+        results = []
+        for job in django_jobs:
+            try:
+                results.append(self.scraper_job_repo.to_entity(job))
+            except Exception as e:
+                logger.error(f"Job {job.pk} has invalid data ({e}). Marking as error.")
+                self.handle_job_result(
+                    job.pk,
+                    success=False,
+                    error_message=f"Invalid job data: {e}",
+                )
+        return results
 
     def get_scraper_job_with_complete_context(self, scraper_job_id: int) -> ScraperJobCompleteContext:
         """
