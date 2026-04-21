@@ -1117,38 +1117,37 @@ class TMobileAuthStrategy(AuthBaseStrategy):
         english_button_css = "#en"
         email_field_xpath = '//*[@id="emailOrPhoneNumberTextBox"]'
 
+        page = self.browser_wrapper.page
+
+        # Step 1: actively wait for the iframe to attach to the DOM.
         try:
-            # Esperar a que el iframe del modal tenga tiempo de aparecer
-            self.logger.info("Waiting for language modal iframe to potentially appear...")
-            time.sleep(5)
+            self.logger.info("Waiting for language modal iframe to appear...")
+            page.locator(iframe_selector).wait_for(state="attached", timeout=15000)
+            self.logger.info("Language modal iframe detected, switching context...")
+        except Exception:
+            self.logger.info("No language modal iframe detected, continuing...")
+            return
 
-            # Verificar si el iframe existe
-            page = self.browser_wrapper.page
-            iframe_locator = page.locator(iframe_selector)
+        # Step 2: wait for the English button *inside* the frame to become visible,
+        # then click it. The iframe can attach before its content finishes rendering,
+        # so we must wait for the inner element — not just check count().
+        try:
+            frame = page.frame_locator(iframe_selector)
+            english_button = frame.locator(english_button_css)
+            english_button.wait_for(state="visible", timeout=20000)
+            self.logger.info("English button found inside iframe, clicking...")
+            english_button.click()
+            self.logger.info("Language set to English")
+        except Exception as e:
+            self.logger.warning(f"English button not clickable inside iframe: {e}")
+            return
 
-            if iframe_locator.count() > 0:
-                self.logger.info("Language modal iframe detected, switching context...")
-
-                # Obtener el frame y buscar el botón dentro
-                frame = page.frame_locator(iframe_selector)
-                english_button = frame.locator(english_button_css)
-
-                if english_button.count() > 0:
-                    self.logger.info("English button found inside iframe, clicking...")
-                    english_button.click()
-                    time.sleep(3)
-                    self.logger.info("Language set to English")
-                else:
-                    self.logger.info("English button not found inside iframe")
-            else:
-                self.logger.info("No language modal iframe detected, continuing...")
-
-            # Verificar que el campo de email esté visible después de manejar el modal
+        # Step 3: confirm email field becomes visible (modal dismissed).
+        try:
             if not self.browser_wrapper.is_element_visible(email_field_xpath, timeout=10000):
                 self.logger.warning("Email field not visible after language modal handling")
-
         except Exception as e:
-            self.logger.warning(f"Error handling language modal: {str(e)}")
+            self.logger.warning(f"Error verifying email field after language modal: {e}")
 
     def _handle_2fa_if_present(self, credentials: Credentials) -> bool:
         """Detect and handle MFA if present. Similar to Bell implementation."""
