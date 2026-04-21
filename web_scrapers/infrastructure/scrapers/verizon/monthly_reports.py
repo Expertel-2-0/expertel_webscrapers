@@ -248,27 +248,27 @@ class VerizonMonthlyReportsScraperStrategy(MonthlyReportsScraperStrategy):
         try:
             self.logger.info("Downloading Device Report...")
 
-            # 1. Click on Device tab
-            device_tab_selector = 'li[data-track="Device"]'
-            self.logger.info("Clicking on Device tab...")
+            # 1. Click on Others tab
+            others_tab_selector = 'li[data-track="Others"]'
+            self.logger.info("Clicking on Others tab...")
 
-            if self.browser_wrapper.is_element_visible(device_tab_selector, timeout=5000, selector_type="css"):
-                self.browser_wrapper.click_element(device_tab_selector, selector_type="css")
+            if self.browser_wrapper.is_element_visible(others_tab_selector, timeout=5000, selector_type="css"):
+                self.browser_wrapper.click_element(others_tab_selector, selector_type="css")
                 time.sleep(2)
             else:
-                self.logger.error("Device tab not found")
+                self.logger.error("Others tab not found")
                 return None
 
-            # 2. Click on Device report
-            device_report_selector = 'div[data-track="Device reports: Device"]'
-            self.logger.info("Clicking on Device report...")
+            # 2. Click on Offer recovery & early termination fees report
+            device_report_selector = 'div[data-track="Other reports: Offer recovery & early termination fees"]'
+            self.logger.info("Clicking on Offer recovery & early termination fees report...")
 
             if self.browser_wrapper.is_element_visible(device_report_selector, timeout=5000, selector_type="css"):
                 self.browser_wrapper.click_element(device_report_selector, selector_type="css")
                 self.logger.info("Waiting 45 seconds for report to load...")
                 time.sleep(45)
             else:
-                self.logger.error("Device report not found")
+                self.logger.error("Offer recovery & early termination fees report not found")
                 return None
 
             # 3. Configure filters
@@ -279,12 +279,18 @@ class VerizonMonthlyReportsScraperStrategy(MonthlyReportsScraperStrategy):
                 self._navigate_back_to_reports()
                 return None
 
-            # 4. Click Apply filters
+            # 4. Select latest available bill cycle (same month for from/to)
+            if not self._select_latest_bill_cycle_both():
+                self.logger.error("Failed to select latest bill cycle, aborting")
+                self._navigate_back_to_reports()
+                return None
+
+            # 5. Click Apply filters
             self._click_apply_filters()
             self.logger.info("Waiting 15 seconds after applying filters...")
             time.sleep(15)
 
-            # 5. Download full report
+            # 6. Download full report
             file_path = self._download_full_report()
 
             if file_path:
@@ -614,6 +620,73 @@ class VerizonMonthlyReportsScraperStrategy(MonthlyReportsScraperStrategy):
 
         except Exception as e:
             self.logger.error(f"Error selecting Bill cycle to: {str(e)}")
+            return False
+
+    def _select_latest_bill_cycle_both(self) -> bool:
+        """Selects the latest available month-year in both Bill cycle from/to dropdowns.
+
+        Used only by the Offer recovery & early termination fees report, which does not
+        keep historical data — it always needs the most recent available bill cycle for
+        both from and to. Reads the first option (DOM is ordered desc) in monthRangeFrom,
+        then selects the same value in monthRangeTo.
+
+        Returns:
+            True if both dropdowns were set successfully, False otherwise.
+        """
+        try:
+            # 1. Open Bill cycle from dropdown
+            from_dropdown_xpath = '//*[@id="monthRangeFrom"]//div[@role="combobox"]'
+
+            if not self.browser_wrapper.is_element_visible(from_dropdown_xpath, timeout=5000):
+                self.logger.error("Bill cycle from dropdown not found")
+                return False
+
+            self.browser_wrapper.click_element(from_dropdown_xpath)
+            time.sleep(1)
+
+            # 2. Read first option (most recent)
+            first_option_xpath = '//*[@id="monthRangeFrom"]//ul[@role="listbox"]//li[@role="option"][1]'
+
+            if not self.browser_wrapper.is_element_visible(first_option_xpath, timeout=3000):
+                self.logger.error("No options available in Bill cycle from dropdown")
+                return False
+
+            latest_month = self.browser_wrapper.get_text(first_option_xpath).strip()
+            self.logger.info(f"Latest available month detected: {latest_month}")
+
+            # 3. Click the first option
+            self.browser_wrapper.click_element(first_option_xpath)
+            self.logger.info(f"Selected Bill cycle from: {latest_month}")
+            time.sleep(1)
+
+            # 4. Open Bill cycle to dropdown
+            to_dropdown_xpath = '//*[@id="monthRangeTo"]//div[@role="combobox"]'
+
+            if not self.browser_wrapper.is_element_visible(to_dropdown_xpath, timeout=5000):
+                self.logger.error("Bill cycle to dropdown not found")
+                return False
+
+            self.browser_wrapper.click_element(to_dropdown_xpath)
+            time.sleep(1)
+
+            # 5. Click matching option in Bill cycle to
+            to_option_xpath = (
+                f'//*[@id="monthRangeTo"]//ul[@role="listbox"]'
+                f'//li[@role="option" and contains(text(), "{latest_month}")]'
+            )
+
+            if not self.browser_wrapper.is_element_visible(to_option_xpath, timeout=3000):
+                self.logger.error(f"Option '{latest_month}' not found in Bill cycle to dropdown")
+                return False
+
+            self.browser_wrapper.click_element(to_option_xpath)
+            self.logger.info(f"Selected Bill cycle to: {latest_month}")
+            time.sleep(1)
+
+            return True
+
+        except Exception as e:
+            self.logger.error(f"Error selecting latest bill cycle: {str(e)}")
             return False
 
     def _set_date_range(self, start_date: date, end_date: date) -> bool:
