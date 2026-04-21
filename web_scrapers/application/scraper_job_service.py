@@ -8,7 +8,7 @@ from typing import Any, Dict, List, Optional
 
 from django.conf import settings
 from django.db import transaction
-from django.db.models import Case, F, Q, Value, When
+from django.db.models import Case, F, Q, TextField, Value, When
 from django.db.models.functions import Coalesce, Concat
 from django.utils import timezone
 
@@ -107,7 +107,11 @@ class ScraperJobService:
             ).update(
                 status=ScraperJobStatus.ERROR,
                 completed_at=current_time,
-                log=Concat(Coalesce(F("log"), Value("")), Value(orphan_log_entry)),
+                log=Concat(
+                    Coalesce(F("log"), Value("", output_field=TextField())),
+                    Value(orphan_log_entry, output_field=TextField()),
+                    output_field=TextField(),
+                ),
             )
         if orphan_count:
             logger.error(f"Marked {orphan_count} orphan scraper_jobs as ERROR (missing scraper_config)")
