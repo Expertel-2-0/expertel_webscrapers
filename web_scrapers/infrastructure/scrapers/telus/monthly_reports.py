@@ -60,7 +60,7 @@ class TelusMonthlyReportsScraperStrategy(MonthlyReportsScraperStrategy):
 
             # 1. Click on bill options button
             bill_options_xpath = (
-                "/html/body/div[5]/div/div/div/div[1]/div/div[3]/div/div/div/div/div/div[3]/div/div/div/div"
+                "//div[@data-testid='generic-card-dropdown-button'][.//div[normalize-space(text())='Bill Options']]"
             )
             self.logger.info("Clicking on bill options...")
             self.browser_wrapper.click_element(bill_options_xpath)
