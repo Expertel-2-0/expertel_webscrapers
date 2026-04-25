@@ -57,9 +57,12 @@ class OutlookInboxChecker(InboxChecker):
         user_email: str,
         date_filter: datetime,
         top: int = 10,
-        from_email: str | None = None,
+        from_email: str | list[str] | None = None,
     ) -> list[EmailMessage] | None:
-        """Retrieve messages from Outlook inbox using Microsoft Graph API."""
+        """Retrieve messages from Outlook inbox using Microsoft Graph API.
+
+        `from_email` may be a single sender or a list of senders (combined with OR).
+        """
         if not self.access_token:
             print("You must first authenticate")
             return None
@@ -76,7 +79,12 @@ class OutlookInboxChecker(InboxChecker):
         formatted_date = date_filter.strftime("%Y-%m-%dT%H:%M:%SZ")
         filters = [f"receivedDateTime ge {formatted_date} "]
         if from_email:
-            filters.append(f"and from/emailAddress/address eq '{from_email}' ")
+            senders = [from_email] if isinstance(from_email, str) else list(from_email)
+            sender_clauses = [f"from/emailAddress/address eq '{s}'" for s in senders]
+            joined = " or ".join(sender_clauses)
+            if len(sender_clauses) > 1:
+                joined = f"({joined})"
+            filters.append(f"and {joined} ")
 
         params = {
             "$top": top,

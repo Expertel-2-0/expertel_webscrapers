@@ -807,7 +807,6 @@ class ATTAuthStrategy(AuthBaseStrategy):
             self.logger.info("Starting login in AT&T...")
 
             self.browser_wrapper.goto(self.get_login_url())
-            self.browser_wrapper.wait_for_page_load(60000)
             time.sleep(3)
 
             username_xpath = (
@@ -910,15 +909,13 @@ class ATTAuthStrategy(AuthBaseStrategy):
     def _handle_2fa_if_present(self, credentials: Credentials) -> bool:
         self.logger.info("Checking if 2FA is required...")
 
-        # Look for the MFA fieldset
-        fieldset_xpath = "/html/body/div[2]/div/form[1]/fieldset"
-        if not self.browser_wrapper.is_element_visible(fieldset_xpath, timeout=10000):
-            self.logger.info("No 2FA fieldset detected")
+        delivery_form_xpath = "//*[@id='deliveryForm']"
+        if not self.browser_wrapper.is_element_visible(delivery_form_xpath, timeout=10000):
+            self.logger.info("No 2FA delivery form detected")
             return True
 
         self.logger.info("2FA flow detected, proceeding...")
 
-        # Find and select the first email option (options after the "Email" h2 heading)
         email_option_xpath = self._find_first_email_option()
         if not email_option_xpath:
             self.logger.error("No email option found in 2FA form")
@@ -928,9 +925,14 @@ class ATTAuthStrategy(AuthBaseStrategy):
         self.browser_wrapper.click_element(email_option_xpath)
         time.sleep(2)
 
-        send_code_button_xpath = "//*[@id='submitVerifyIdentity']"
-        self.logger.info("Requesting Email code...")
-        self.browser_wrapper.click_element(send_code_button_xpath)
+        preferred_method_checkbox_xpath = "//*[@id='preferredMethodInput']"
+        self.logger.info("Marking 'Set as my preferred method' checkbox...")
+        self.browser_wrapper.click_element(preferred_method_checkbox_xpath)
+        time.sleep(1)
+
+        request_code_button_xpath = "//*[@id='continueButton']"
+        self.logger.info("Clicking Continue to request Email code...")
+        self.browser_wrapper.click_element(request_code_button_xpath)
         time.sleep(3)
 
         self.logger.info("Waiting for MFA code from SSE endpoint...")
@@ -939,14 +941,23 @@ class ATTAuthStrategy(AuthBaseStrategy):
 
         self.logger.info(f"Code received: {code}")
 
-        code_input_xpath = "/html/body/div[2]/div/form[1]/fieldset/div[1]/input[1]"
+        code_input_xpath = "//*[@id='enterOtp']"
         self.logger.info("Entering 2FA code...")
         self.browser_wrapper.type_text(code_input_xpath, code)
         time.sleep(1)
 
-        continue_button_xpath = "/html/body/div[2]/div/form[1]/fieldset/div[4]/input[3]"
+        # Idempotently mark "trust this device / don't ask again" checkbox.
+        trust_device_checkbox_xpath = "//*[@id='checkbox1FormRow']"
+        try:
+            self.logger.info("Ensuring 'trust device' checkbox is marked...")
+            self.browser_wrapper.page.locator(f"xpath={trust_device_checkbox_xpath}").check(timeout=5000)
+        except Exception as e:
+            self.logger.warning(f"Could not mark trust-device checkbox (continuing): {e}")
+        time.sleep(1)
+
+        submit_code_button_xpath = "//*[@id='continue']"
         self.logger.info("Submitting 2FA code...")
-        self.browser_wrapper.click_element(continue_button_xpath)
+        self.browser_wrapper.click_element(submit_code_button_xpath)
         time.sleep(30)
         self._dismiss_modal_if_present()
 
@@ -963,18 +974,11 @@ class ATTAuthStrategy(AuthBaseStrategy):
             self.logger.debug("No modal detected")
 
     def _find_first_email_option(self) -> Optional[str]:
-        """
-        Find the first email option in the 2FA form.
-
-        The form has radio buttons for SMS and Email. Email options appear after
-        an h2 with id="radiolabel2". Returns the XPath of the first email radio
-        input found, or None if not found.
-        """
-        # XPath to find the first radio input after the Email heading (h2#radiolabel2)
-        email_option_xpath = "//h2[@id='radiolabel2']/following-sibling::div[1]//input[@name='radioOptions']"
+        # The masked email suffix changes per account, so match radios by `label` starting with "Email".
+        email_option_xpath = '(//input[@name="selectCTN" and starts-with(@label, "Email")])[1]'
 
         if self.browser_wrapper.is_element_visible(email_option_xpath, timeout=5000):
-            self.logger.info("Found email option after radiolabel2 heading")
+            self.logger.info("Found email radio in MFA delivery form")
             return email_option_xpath
 
         self.logger.warning("Email option not found")

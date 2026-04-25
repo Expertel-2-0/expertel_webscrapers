@@ -41,7 +41,7 @@ async def get_messages_async(
     checker: OutlookInboxChecker,
     email_alias: str,
     date_filter: datetime,
-    from_email: str,
+    from_email: str | list[str],
 ):
     return await asyncio.to_thread(
         checker.get_messages,
@@ -52,7 +52,9 @@ async def get_messages_async(
     )
 
 
-async def code_extractor(carrier: str, email_alias: str, carrier_from_email: str) -> AsyncGenerator[dict, None]:
+async def code_extractor(
+    carrier: str, email_alias: str, carrier_from_email: str | list[str]
+) -> AsyncGenerator[dict, None]:
     elapsed = 0
     TIMEOUT_SECONDS = 300
     POLL_INTERVAL = 5
@@ -92,8 +94,12 @@ async def code_extractor(carrier: str, email_alias: str, carrier_from_email: str
 @router.get("/att")
 async def get_att_code(email_alias: str = Query(...)):
     email_alias = "notifications@expertel.com"
-    carrier_from_email = "premier@premier.wireless.att-mail.com"
-    return EventSourceResponse(code_extractor("att", email_alias, carrier_from_email))
+    # AT&T has been migrating senders; accept both legacy and new domains.
+    carrier_from_emails = [
+        "premier@premier.wireless.att-mail.com",
+        "noreply@e.online.att-mail.com",
+    ]
+    return EventSourceResponse(code_extractor("att", email_alias, carrier_from_emails))
 
 
 @router.get("/bell")
