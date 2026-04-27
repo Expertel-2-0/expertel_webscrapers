@@ -910,30 +910,41 @@ class ATTAuthStrategy(AuthBaseStrategy):
         self.logger.info("Checking if 2FA is required...")
 
         delivery_form_xpath = "//*[@id='deliveryForm']"
-        if not self.browser_wrapper.is_element_visible(delivery_form_xpath, timeout=10000):
-            self.logger.info("No 2FA delivery form detected")
+        otp_input_xpath = "//*[@id='enterOtp']"
+
+        # Two possible 2FA states: delivery-method picker OR direct OTP entry
+        # (AT&T skips the picker once a preferred method has been saved).
+        on_otp_page = self.browser_wrapper.is_element_visible(otp_input_xpath, timeout=5000)
+        on_delivery_form = False
+        if not on_otp_page:
+            on_delivery_form = self.browser_wrapper.is_element_visible(delivery_form_xpath, timeout=5000)
+
+        if not on_otp_page and not on_delivery_form:
+            self.logger.info("No 2FA detected (neither delivery form nor OTP input)")
             return True
 
-        self.logger.info("2FA flow detected, proceeding...")
+        if on_delivery_form:
+            self.logger.info("2FA delivery form detected, selecting email method...")
+            email_option_xpath = self._find_first_email_option()
+            if not email_option_xpath:
+                self.logger.error("No email option found in 2FA form")
+                return False
 
-        email_option_xpath = self._find_first_email_option()
-        if not email_option_xpath:
-            self.logger.error("No email option found in 2FA form")
-            return False
+            self.logger.info(f"Selecting Email option: {email_option_xpath}")
+            self.browser_wrapper.click_element(email_option_xpath)
+            time.sleep(2)
 
-        self.logger.info(f"Selecting Email option: {email_option_xpath}")
-        self.browser_wrapper.click_element(email_option_xpath)
-        time.sleep(2)
+            preferred_method_checkbox_xpath = "//*[@id='preferredMethodInput']"
+            self.logger.info("Marking 'Set as my preferred method' checkbox...")
+            self.browser_wrapper.click_element(preferred_method_checkbox_xpath)
+            time.sleep(1)
 
-        preferred_method_checkbox_xpath = "//*[@id='preferredMethodInput']"
-        self.logger.info("Marking 'Set as my preferred method' checkbox...")
-        self.browser_wrapper.click_element(preferred_method_checkbox_xpath)
-        time.sleep(1)
-
-        request_code_button_xpath = "//*[@id='continueButton']"
-        self.logger.info("Clicking Continue to request Email code...")
-        self.browser_wrapper.click_element(request_code_button_xpath)
-        time.sleep(3)
+            request_code_button_xpath = "//*[@id='continueButton']"
+            self.logger.info("Clicking Continue to request Email code...")
+            self.browser_wrapper.click_element(request_code_button_xpath)
+            time.sleep(3)
+        else:
+            self.logger.info("2FA OTP page reached directly (preferred method already set)")
 
         self.logger.info("Waiting for MFA code from SSE endpoint...")
         endpoint_url = f"{self.webhook_url}/api/v1/att"
@@ -941,15 +952,14 @@ class ATTAuthStrategy(AuthBaseStrategy):
 
         self.logger.info(f"Code received: {code}")
 
-        code_input_xpath = "//*[@id='enterOtp']"
         self.logger.info("Entering 2FA code...")
-        self.browser_wrapper.type_text(code_input_xpath, code)
+        self.browser_wrapper.type_text(otp_input_xpath, code)
         time.sleep(1)
 
-        # Idempotently mark "trust this device / don't ask again" checkbox.
-        trust_device_checkbox_xpath = "//*[@id='checkbox1FormRow']"
+        # checkbox1FormRow is a wrapping <div>; the actual checkbox <input> is #trustedDevice.
+        trust_device_checkbox_xpath = "//*[@id='trustedDevice']"
         try:
-            self.logger.info("Ensuring 'trust device' checkbox is marked...")
+            self.logger.info("Ensuring 'Trust this browser' checkbox is marked...")
             self.browser_wrapper.page.locator(f"xpath={trust_device_checkbox_xpath}").check(timeout=5000)
         except Exception as e:
             self.logger.warning(f"Could not mark trust-device checkbox (continuing): {e}")
