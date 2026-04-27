@@ -1276,6 +1276,7 @@ class VerizonAuthStrategy(AuthBaseStrategy):
             # First check if already logged in (no MFA required)
             if self.is_logged_in():
                 self.logger.info("Login successful in Verizon (no MFA required)")
+                self._dismiss_promo_modal_if_present()
                 return True
 
             # Check for MFA
@@ -1285,6 +1286,7 @@ class VerizonAuthStrategy(AuthBaseStrategy):
 
             if self.is_logged_in():
                 self.logger.info("Login successful in Verizon")
+                self._dismiss_promo_modal_if_present()
                 return True
             else:
                 self.logger.error("Login failed in Verizon")
@@ -1395,6 +1397,19 @@ class VerizonAuthStrategy(AuthBaseStrategy):
                 self.logger.info(f"Deleted CAPTCHA image: {image_path}")
             except Exception as e:
                 self.logger.warning(f"Could not delete CAPTCHA image: {str(e)}")
+
+    def _dismiss_promo_modal_if_present(self) -> None:
+        # Random post-login promo overlay rendered into #on-landing; absence is fine.
+        no_thanks_xpath = '//*[@id="on-landing"]//button[@aria-label="No thanks"]'
+        try:
+            if self.browser_wrapper.is_element_visible(no_thanks_xpath, timeout=5000):
+                self.logger.info("Promotional modal detected, clicking 'No thanks'...")
+                self.browser_wrapper.click_element(no_thanks_xpath)
+                time.sleep(2)
+            else:
+                self.logger.debug("No promotional modal detected after login")
+        except Exception as e:
+            self.logger.warning(f"Could not dismiss promotional modal (continuing): {e}")
 
     def logout(self) -> bool:
         try:
