@@ -1,61 +1,84 @@
 {% extends "emails/base_email.html" %}
-{% block title %}Scraper Error Alert – Expertel iQ{% endblock %}
+
+{% block title %}Scraper Error Alert{% endblock %}
+
+{% block extra_styles %}
+.detail-table {
+  width: 100%;
+  border-collapse: collapse;
+  border: 1px solid #E0E0E0;
+  border-radius: 8px;
+  overflow: hidden;
+  margin: 20px 0 24px 0;
+}
+.detail-table tr + tr { border-top: 1px solid #E0E0E0; }
+.detail-table td {
+  padding: 12px 16px;
+  font-size: 14px;
+  color: #212121;
+  vertical-align: top;
+}
+.detail-table td.label {
+  background-color: #FAFAFA;
+  width: 38%;
+  color: #757575;
+  font-weight: 600;
+  text-transform: uppercase;
+  font-size: 12px;
+  letter-spacing: 0.5px;
+}
+.error-block {
+  font-family: 'SF Mono', 'Monaco', 'Inconsolata', 'Fira Mono', 'Droid Sans Mono', monospace;
+  font-size: 12px;
+  background-color: #FFF5F5;
+  color: #C62828;
+  padding: 10px 12px;
+  border-radius: 6px;
+  margin: 0;
+  word-break: break-word;
+  white-space: pre-wrap;
+}
+{% endblock %}
+
+{% block greeting %}
+<h1>Scraper ran into an issue</h1>
+{% endblock %}
 
 {% block content %}
-<p class="email-title">Scraper Run Into an Issue</p>
-<p class="email-subtitle">
-  Hi {{ nombre }}, a scraper encountered an error during its latest run on {{ error_date }}.
-  Please review the details below and take action to restore normal operation.
-</p>
+<p>Hi {{ nombre }}, a scraper encountered an error during its latest run on
+<strong>{{ error_date }}</strong>. Please review the details below and take action to restore
+normal operation.</p>
 
-<div class="info-card">
-  <div class="info-row">
-    <span class="info-label">Scraper</span>
-    <span class="info-value">{{ scraper_type }}</span>
-  </div>
+<table class="detail-table" role="presentation">
+  <tr>
+    <td class="label">Scraper</td>
+    <td>{{ scraper_type }}</td>
+  </tr>
+  <tr>
+    <td class="label">Carrier / Source</td>
+    <td>{{ carrier_name }}</td>
+  </tr>
+  <tr>
+    <td class="label">Client</td>
+    <td>{{ client_name }}</td>
+  </tr>
+  <tr>
+    <td class="label">Account</td>
+    <td>{{ account_number }}</td>
+  </tr>
+  <tr>
+    <td class="label">Status</td>
+    <td><strong style="color:#C62828;">Failed</strong></td>
+  </tr>
+  <tr>
+    <td class="label">Attempts</td>
+    <td>{{ retry_count }} of {{ max_retries }} retries failed</td>
+  </tr>
+  <tr>
+    <td class="label">Error</td>
+    <td><pre class="error-block">{{ error_message }}</pre></td>
+  </tr>
+</table>
 
-  <div class="info-divider"></div>
-
-  <div class="info-row">
-    <span class="info-label">Carrier / Source</span>
-    <span class="info-value">{{ carrier_name }}</span>
-  </div>
-
-  <div class="info-divider"></div>
-
-  <div class="info-row">
-    <span class="info-label">Client</span>
-    <span class="info-value">{{ client_name }}</span>
-  </div>
-
-  <div class="info-divider"></div>
-
-  <div class="info-row">
-    <span class="info-label">Account</span>
-    <span class="info-value">{{ account_number }}</span>
-  </div>
-
-  <div class="info-divider"></div>
-
-  <div class="info-row">
-    <span class="info-label">Status</span>
-    <span class="info-value">Failed</span>
-  </div>
-
-  <div class="info-divider"></div>
-
-  <div class="info-row">
-    <span class="info-label">Error</span>
-    <span class="info-value">{{ error_message }}</span>
-  </div>
-
-  <div class="info-divider"></div>
-
-  <div class="info-row">
-    <span class="info-label">Attempts</span>
-    <span class="info-value">{{ retry_count }} of {{ max_retries }} retries failed</span>
-  </div>
-</div>
-
-<a href="{{ logs_url }}" class="btn-primary">View Error Logs</a>
+{% include "emails/components/_button.html" with url=logs_url text="View error logs" %}
 {% endblock %}

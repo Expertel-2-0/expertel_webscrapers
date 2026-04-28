@@ -1,63 +1,148 @@
 {% extends "emails/base_email.html" %}
-{% block title %}Scraper Execution Log – Expertel iQ{% endblock %}
 
-{% block content %}
-<p class="email-title">Scraper Execution Log</p>
-<p class="email-subtitle">
-  Run started at {{ run_started_at }} and finished at {{ run_finished_at }}.
-  Overall status: <strong>{{ overall_status }}</strong>.
-</p>
+{% block title %}Scraper Execution Log{% endblock %}
 
-<div class="info-card">
-  <div class="info-row">
-    <span class="info-label">Total jobs</span>
-    <span class="info-value">{{ total_jobs }}</span>
-  </div>
-  <div class="info-divider"></div>
-  <div class="info-row">
-    <span class="info-label">Successful</span>
-    <span class="info-value">{{ successful_jobs }}</span>
-  </div>
-  <div class="info-divider"></div>
-  <div class="info-row">
-    <span class="info-label">Failed</span>
-    <span class="info-value">{{ failed_jobs }}</span>
-  </div>
-  {% if fatal_error %}
-  <div class="info-divider"></div>
-  <div class="info-row">
-    <span class="info-label">Fatal error</span>
-    <span class="info-value">{{ fatal_error }}</span>
-  </div>
-  {% endif %}
-  {% if log_file_name %}
-  <div class="info-divider"></div>
-  <div class="info-row">
-    <span class="info-label">Attached log</span>
-    <span class="info-value">{{ log_file_name }}</span>
-  </div>
-  {% endif %}
-</div>
+{% block extra_styles %}
+.status-pill {
+  display: inline-block;
+  padding: 4px 12px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+}
+.status-pill.partial { background-color: #FFF3E0; color: #E65100; border: 1px solid #FFE0B2; }
+.status-pill.failed  { background-color: #FFEBEE; color: #C62828; border: 1px solid #FFCDD2; }
+.status-pill.fatal   { background-color: #B71C1C; color: #FFFFFF; }
 
-{% if job_results %}
-<p class="email-title" style="font-size: 16px;">Failed jobs</p>
-<div class="info-card">
-  {% for r in job_results %}
-  <div class="info-row">
-    <span class="info-label">
-      [{{ r.status }}] {{ r.carrier }} / {{ r.scraper_type }}
-    </span>
-    <span class="info-value">
-      job #{{ r.job_id }} — {{ r.client }} / {{ r.account }}
-      {% if r.error %}<br><em>{{ r.error }}</em>{% endif %}
-    </span>
-  </div>
-  {% if not forloop.last %}<div class="info-divider"></div>{% endif %}
-  {% endfor %}
-</div>
-{% endif %}
+.summary-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 16px 0 24px 0;
+}
+.summary-table td {
+  padding: 14px 16px;
+  background-color: #F5F5F5;
+  border-radius: 8px;
+  text-align: center;
+  width: 33%;
+}
+.summary-table td + td { border-left: 4px solid #FFFFFF; }
+.summary-table .stat-label {
+  display: block;
+  color: #757575;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  margin-bottom: 6px;
+}
+.summary-table .stat-value {
+  display: block;
+  color: #212121;
+  font-size: 22px;
+  font-weight: 700;
+}
+.summary-table .stat-value.failed { color: #C62828; }
+.summary-table .stat-value.success { color: #2E7D32; }
 
-<p class="support-text">
-  The complete log for this run is attached to this email.
+.failed-job {
+  background-color: #FFFFFF;
+  border: 1px solid #E0E0E0;
+  border-left: 4px solid #E53935;
+  border-radius: 8px;
+  padding: 16px 20px;
+  margin: 0 0 12px 0;
+}
+.failed-job-header {
+  font-size: 15px;
+  font-weight: 600;
+  color: #212121;
+  margin: 0 0 8px 0;
+}
+.failed-job-meta {
+  font-size: 13px;
+  color: #757575;
+  margin: 0 0 10px 0;
+}
+.failed-job-error {
+  font-family: 'SF Mono', 'Monaco', 'Inconsolata', 'Fira Mono', 'Droid Sans Mono', monospace;
+  font-size: 12px;
+  background-color: #FFF5F5;
+  color: #C62828;
+  padding: 10px 12px;
+  border-radius: 6px;
+  margin: 0;
+  word-break: break-word;
+  white-space: pre-wrap;
+}
+
+.run-meta {
+  font-size: 14px;
+  color: #757575;
+  margin: 0 0 4px 0;
+}
+.run-meta strong { color: #212121; }
+
+@media only screen and (max-width: 600px) {
+  .summary-table td { display: block; width: 100% !important; margin-bottom: 8px; }
+  .summary-table td + td { border-left: none; }
+}
+{% endblock %}
+
+{% block greeting %}
+<h1>Scraper Execution Log</h1>
+<p class="run-meta"><strong>Started:</strong> {{ run_started_at }}</p>
+<p class="run-meta"><strong>Finished:</strong> {{ run_finished_at }}</p>
+<p class="run-meta">
+  <strong>Status:</strong>
+  <span class="status-pill {{ overall_status|lower }}">{{ overall_status }}</span>
 </p>
 {% endblock %}
+
+{% block content %}
+<table class="summary-table" role="presentation">
+  <tr>
+    <td>
+      <span class="stat-label">Total</span>
+      <span class="stat-value">{{ total_jobs }}</span>
+    </td>
+    <td>
+      <span class="stat-label">Successful</span>
+      <span class="stat-value success">{{ successful_jobs }}</span>
+    </td>
+    <td>
+      <span class="stat-label">Failed</span>
+      <span class="stat-value failed">{{ failed_jobs }}</span>
+    </td>
+  </tr>
+</table>
+
+{% if fatal_error %}
+{% include "emails/components/_alert_box.html" with message=fatal_error %}
+{% endif %}
+
+{% if job_results %}
+<h2 style="font-size:18px;color:#212121;margin:24px 0 12px 0;">Failed jobs</h2>
+{% for r in job_results %}
+<div class="failed-job">
+  <p class="failed-job-header">{{ r.carrier }} &middot; {{ r.scraper_type }}</p>
+  <p class="failed-job-meta">
+    Job #{{ r.job_id }} &middot; {{ r.client }} &middot; account {{ r.account }}
+  </p>
+  {% if r.error %}
+  <pre class="failed-job-error">{{ r.error }}</pre>
+  {% endif %}
+</div>
+{% endfor %}
+{% endif %}
+
+{% if log_file_name %}
+<p class="support-text" style="margin-top:24px;">
+  The full execution log <strong>{{ log_file_name }}</strong> is attached to this email.
+</p>
+{% endif %}
+{% endblock %}
+
+{% block sign_off %}{% endblock %}

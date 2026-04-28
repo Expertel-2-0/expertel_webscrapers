@@ -1,0 +1,10 @@
+{# Info Box Component #}
+{# Usage: {% include "emails/components/_info_box.html" with title="Label" content="Value" style="code" %} #}
+{# style options: "default" (normal text), "code" (large monospace for verification codes) #}
+
+<div class="info-box">
+  {% if title %}
+  <p class="info-box-label">{{ title }}</p>
+  {% endif %}
+  <p class="info-box-value{% if style == 'code' %} code{% endif %}">{{ content }}</p>
+</div>
