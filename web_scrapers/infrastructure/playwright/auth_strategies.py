@@ -359,11 +359,11 @@ class TelusAuthStrategy(AuthBaseStrategy):
         """Verifica si el usuario esta logueado en Telus usando multiples metodos."""
         try:
             current_url = self.browser_wrapper.get_current_url()
-            self.logger.info(f"Verificando login en URL: {current_url}")
+            self.logger.info(f"Verifying login at URL: {current_url}")
 
             # Metodo 1: Verificar si estamos en my-telus (indica login exitoso)
             if "my-telus" in current_url:
-                self.logger.info("URL contiene 'my-telus' - probablemente logueado")
+                self.logger.info("URL contains 'my-telus' - probably logged in")
 
                 # Verificar elementos que solo aparecen cuando esta logueado
                 logged_in_indicators = [
@@ -381,13 +381,13 @@ class TelusAuthStrategy(AuthBaseStrategy):
                 for xpath in logged_in_indicators:
                     try:
                         if self.browser_wrapper.is_element_visible(xpath, timeout=3000):
-                            self.logger.info(f"Login confirmado con elemento: {xpath[:50]}...")
+                            self.logger.info(f"Login confirmed with element: {xpath[:50]}...")
                             return True
                     except Exception:
                         continue
 
                 # Si estamos en my-telus pero no encontramos indicadores, asumir logueado
-                self.logger.info("En my-telus sin indicadores visibles, asumiendo logueado")
+                self.logger.info("On my-telus with no visible indicators, assuming logged in")
                 return True
 
             # Metodo 2: Verificar si estamos en pagina de login (indica NO logueado)
@@ -402,13 +402,13 @@ class TelusAuthStrategy(AuthBaseStrategy):
             for xpath in login_page_indicators:
                 try:
                     if self.browser_wrapper.is_element_visible(xpath, timeout=2000):
-                        self.logger.info(f"Pagina de login detectada con: {xpath}")
+                        self.logger.info(f"Login page detected with: {xpath}")
                         return False
                 except Exception:
                     continue
 
             # Metodo 3: Navegar a my-telus para verificar
-            self.logger.info("Navegando a my-telus para verificar estado de login...")
+            self.logger.info("Navigating to my-telus to verify login state...")
             self.browser_wrapper.goto("https://www.telus.com/my-telus")
             self.browser_wrapper.wait_for_page_load()
             time.sleep(3)
@@ -416,14 +416,14 @@ class TelusAuthStrategy(AuthBaseStrategy):
             # Verificar URL despues de navegar
             new_url = self.browser_wrapper.get_current_url()
             if "my-telus" in new_url and "login" not in new_url.lower():
-                self.logger.info("Navegacion exitosa a my-telus - usuario logueado")
+                self.logger.info("Successfully navigated to my-telus - user is logged in")
                 return True
 
-            self.logger.info("No se pudo confirmar login")
+            self.logger.info("Could not confirm login")
             return False
 
         except Exception as e:
-            self.logger.error(f"Error verificando estado de login: {str(e)}")
+            self.logger.error(f"Error verifying login state: {str(e)}")
             return False
 
     def get_login_url(self) -> str:
@@ -808,6 +808,20 @@ class ATTAuthStrategy(AuthBaseStrategy):
 
             self.browser_wrapper.goto(self.get_login_url())
             time.sleep(3)
+
+            # A previous failed run can leave AT&T in pending-MFA state, so navigating to
+            # the login URL redirects straight to the delivery form or OTP entry. Detect
+            # that and skip credential entry, otherwise the username xpath times out.
+            delivery_form_xpath = "//*[@id='deliveryForm']"
+            otp_input_xpath = "//*[@id='enterOtp']"
+            if self.browser_wrapper.is_element_visible(delivery_form_xpath, timeout=5000) or \
+               self.browser_wrapper.is_element_visible(otp_input_xpath, timeout=1000):
+                self.logger.info("Pending-MFA state detected on landing — skipping credentials entry")
+                if not self._handle_2fa_if_present(credentials):
+                    self.logger.warning("2FA failed - interrupting login")
+                    return False
+                self._dismiss_modal_if_present()
+                return self.is_logged_in()
 
             username_xpath = (
                 "/html/body/app-root/div/div/div/div/app-login-general/app-card/div/div/div/form/div[1]/input"

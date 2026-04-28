@@ -107,7 +107,7 @@ class SessionManager:
             return is_active
 
         except Exception as e:
-            error_msg = f"Error al verificar el estado de la sesión: {str(e)}"
+            error_msg = f"Error verifying session state: {str(e)}"
             self.session_state.set_error(error_msg)
             return False
 
@@ -295,12 +295,12 @@ class SessionManager:
                 self.session_state.set_logged_in(carrier=credentials.carrier, credentials=credentials)
                 return True
             else:
-                error_msg = f"Error al hacer login con {credentials.carrier}"
+                error_msg = f"Login failed for {credentials.carrier}"
                 self.session_state.set_error(error_msg)
                 return False
 
         except Exception as e:
-            error_msg = f"Error durante el proceso de login: {str(e)}"
+            error_msg = f"Error during login process: {str(e)}"
             self.session_state.set_error(error_msg)
             return False
 
@@ -322,12 +322,12 @@ class SessionManager:
                 self._current_login_url = None  # ← CAMBIO: limpiar URL de login
                 return True
             else:
-                error_msg = "Error al hacer logout"
+                error_msg = "Logout failed"
                 self.session_state.set_error(error_msg)
                 return False
 
         except Exception as e:
-            error_msg = f"Error durante el proceso de logout: {str(e)}"
+            error_msg = f"Error during logout process: {str(e)}"
             self.session_state.set_error(error_msg)
             return False
 

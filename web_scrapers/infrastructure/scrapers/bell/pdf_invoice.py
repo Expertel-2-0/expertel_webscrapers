@@ -95,7 +95,7 @@ class BellPDFInvoiceScraperStrategy(PDFInvoiceScraperStrategy):
         # Verificar que estamos en la pagina correcta
         complete_invoice_radiobtn_xpath = "//input[@name='invoiceSelect' and @value='Y']"
         if not self.browser_wrapper.find_element_by_xpath(complete_invoice_radiobtn_xpath, timeout=5000):
-            raise Exception("No se encontro el radio button de opciones de descarga")
+            raise Exception("Download options radio button not found")
 
         # complete invoice (click)
         complete_invoice_label_xpath = (

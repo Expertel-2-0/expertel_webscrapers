@@ -22,13 +22,13 @@ class RogersPDFInvoiceScraperStrategy(PDFInvoiceScraperStrategy):
     def _find_files_section(self, config: ScraperConfig, billing_cycle: BillingCycle) -> Optional[Any]:
         """Navega a la seccion de facturas PDF de Rogers."""
         try:
-            print("Navegando a facturas PDF de Rogers...")
+            print("Navigating to Rogers PDF invoices...")
             # Implementar navegacion especifica de Rogers
-            print("Navegacion completada")
+            print("Navigation completed")
             return {"section": "pdf_invoices", "ready_for_download": True}
 
         except Exception as e:
-            print(f"Error navegando a facturas PDF: {str(e)}")
+            print(f"Error navigating to PDF invoices: {str(e)}")
             return None
 
     def _download_files(
@@ -38,17 +38,17 @@ class RogersPDFInvoiceScraperStrategy(PDFInvoiceScraperStrategy):
         downloaded_files = []
 
         try:
-            print("Descargando facturas PDF...")
+            print("Downloading PDF invoices...")
             # Implementar logica de descarga especifica de Rogers
 
             # Reset a pantalla principal
             self._reset_to_main_screen()
 
-            print(f"Descarga PDF completada: {len(downloaded_files)} archivo(s)")
+            print(f"PDF download completed: {len(downloaded_files)} file(s)")
             return downloaded_files
 
         except Exception as e:
-            print(f"Error en descarga de PDF: {str(e)}")
+            print(f"Error during PDF download: {str(e)}")
             try:
                 self._reset_to_main_screen()
             except:
@@ -58,8 +58,8 @@ class RogersPDFInvoiceScraperStrategy(PDFInvoiceScraperStrategy):
     def _reset_to_main_screen(self):
         """Reset a la pantalla inicial de Rogers."""
         try:
-            print("Reseteando a Rogers...")
+            print("Resetting to Rogers...")
             time.sleep(3)
-            print("Reset completado")
+            print("Reset completed")
         except Exception as e:
-            print(f"Error en reset: {str(e)}")
+            print(f"Error during reset: {str(e)}")

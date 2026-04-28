@@ -60,19 +60,19 @@ def process_images_folder(folder_name: str = "imagenes") -> dict:
 
     if not images_folder.exists():
         images_folder.mkdir()
-        print(f"Carpeta '{folder_name}' creada. Agrega imágenes y ejecuta de nuevo.")
+        print(f"Folder '{folder_name}' created. Add images and run again.")
         return {}
 
     extensions = {".jpg", ".jpeg", ".png", ".gif", ".webp"}
     images = [f for f in images_folder.iterdir() if f.suffix.lower() in extensions]
 
     if not images:
-        print(f"No hay imágenes en '{folder_name}'")
+        print(f"No images in '{folder_name}'")
         return {}
 
     results = {}
     for image_path in images:
-        print(f"Procesando: {image_path.name}")
+        print(f"Processing: {image_path.name}")
         results[image_path.name] = extract_text_from_image(image_path)
 
     return results

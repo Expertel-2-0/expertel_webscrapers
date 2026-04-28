@@ -21,7 +21,7 @@ class PlaywrightWrapper(BrowserWrapper):
         try:
             return strategies[selector_type](selector)
         except KeyError:
-            raise ValueError(f"selector_type inválido: {selector_type}")
+            raise ValueError(f"Invalid selector_type: {selector_type}")
 
     def goto(self, url: str, wait_until: str = "load") -> None:
         self.page.goto(url, wait_until=wait_until)
@@ -143,7 +143,7 @@ class PlaywrightWrapper(BrowserWrapper):
                 self.page = page
                 self.page.bring_to_front()
                 return
-        raise RuntimeError("No hay pestaña nueva disponible o todas están cerradas.")
+        raise RuntimeError("No new tab available or all tabs are closed.")
 
     def close_current_tab(self) -> None:
         self.page.close()
@@ -152,7 +152,7 @@ class PlaywrightWrapper(BrowserWrapper):
             self.page = remaining_pages[-1]
             self.page.bring_to_front()
         else:
-            raise RuntimeError("Todas las pestañas han sido cerradas.")
+            raise RuntimeError("All tabs have been closed.")
 
     def switch_to_previous_tab(self) -> None:
         pages = self.page.context.pages
@@ -164,7 +164,7 @@ class PlaywrightWrapper(BrowserWrapper):
                 self.page = page
                 self.page.bring_to_front()
                 return
-        raise RuntimeError("No se pudo cambiar a la pestaña anterior.")
+        raise RuntimeError("Could not switch to the previous tab.")
 
     def switch_to_tab_by_index(self, index: int) -> None:
         pages = self.page.context.pages
@@ -175,8 +175,8 @@ class PlaywrightWrapper(BrowserWrapper):
                 self.page.bring_to_front()
                 return
             else:
-                raise RuntimeError(f"La pestaña en el índice {index} está cerrada.")
-        raise ValueError(f"Índice fuera de rango: {index}")
+                raise RuntimeError(f"The tab at index {index} is closed.")
+        raise ValueError(f"Index out of range: {index}")
 
     def get_tab_count(self) -> int:
         return len(self.page.context.pages)
@@ -198,7 +198,7 @@ class PlaywrightWrapper(BrowserWrapper):
                 """
                 )
         except Exception as e:
-            print(f"⚠️ Error al limpiar datos: {e}")
+            print(f"⚠️ Error clearing browser data: {e}")
 
     def close_all_tabs_except_main(self) -> None:
         try:
@@ -213,7 +213,7 @@ class PlaywrightWrapper(BrowserWrapper):
                 self.page = main_page
                 self.page.bring_to_front()
         except Exception as e:
-            print(f"❌ Error al cerrar pestañas: {e}")
+            print(f"❌ Error closing tabs: {e}")
 
     def get_current_tab_index(self) -> int:
         try:
@@ -260,7 +260,7 @@ class PlaywrightWrapper(BrowserWrapper):
             return file_path
 
         except Exception as e:
-            print(f"Error en descarga: {str(e)}")
+            print(f"Error during download: {str(e)}")
             return None
 
     def get_page_content(self) -> str:

@@ -385,7 +385,7 @@ class BrowserDriverFactory:
 
         driver_class: Type[NavigatorDriverBuilder] = self._driver_builders.get(browser_type)
         if not driver_class:
-            raise ValueError(f"Navegador no soportado: {browser_type}")
+            raise ValueError(f"Unsupported browser: {browser_type}")
 
         if not self._playwright:
             self._playwright = sync_playwright().start()
@@ -526,9 +526,9 @@ class BrowserDriverFactory:
         chrome_path = self._find_chrome()
         if not chrome_path:
             raise RuntimeError(
-                "Google Chrome no encontrado en el sistema. "
-                "Instala Chrome para usar el modo CDP. "
-                f"Rutas buscadas: {self.CHROME_PATHS}"
+                "Google Chrome not found on the system. "
+                "Install Chrome to use CDP mode. "
+                f"Paths searched: {self.CHROME_PATHS}"
             )
 
         if not self._playwright:
