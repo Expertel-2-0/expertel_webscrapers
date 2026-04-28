@@ -2,8 +2,10 @@
 Main ScraperJob processor with available_at support
 """
 
+import logging
 import os
 import sys
+from datetime import datetime
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), ".")))
 
@@ -15,12 +17,14 @@ django.setup()
 
 from web_scrapers.application.safe_scraper_job_service import SafeScraperJobService
 from web_scrapers.application.scraper_job_service import ScraperJobService
+from web_scrapers.application.services.email_service import DjangoEmailBackend, EmailService
 from web_scrapers.application.session_manager import SessionManager
 from web_scrapers.domain.entities.models import ScraperJobCompleteContext
 from web_scrapers.domain.entities.scraper_factory import ScraperStrategyFactory
 from web_scrapers.domain.entities.session import Carrier as CarrierEnum, Credentials
 from web_scrapers.domain.enums import Navigators, ScraperJobStatus, ScraperType
-from web_scrapers.infrastructure.logging_config import get_logger, setup_logging
+from web_scrapers.domain.mailables.scraper_execution_log import ScraperExecutionLogMailable
+from web_scrapers.infrastructure.logging_config import build_run_log_path, get_logger, setup_logging
 
 
 class ScraperJobProcessor:
@@ -33,6 +37,8 @@ class ScraperJobProcessor:
         self.scraper_job_service = SafeScraperJobService(original_service)
         self.session_manager = SessionManager(browser_type=Navigators.CHROME)
         self.scraper_factory = ScraperStrategyFactory()
+        # Per-run job results captured for the execution log email
+        self.job_results: list[dict] = []
 
     def log_statistics(self) -> None:
         """Display available scraper statistics"""
@@ -74,6 +80,18 @@ class ScraperJobProcessor:
         credential = job_context.credential
         account = job_context.account
         carrier = job_context.carrier
+        client = job_context.client
+
+        result_entry: dict = {
+            "job_id": scraper_job.id,
+            "carrier": carrier.name,
+            "scraper_type": scraper_job.type,
+            "client": client.name,
+            "account": account.number,
+            "status": "FAILED",
+            "error": None,
+        }
+        self.job_results.append(result_entry)
 
         self.logger.info(f"Processing job {job_number}/{total_jobs}")
         self.logger.info(f"Job ID: {scraper_job.id}")
@@ -154,6 +172,7 @@ class ScraperJobProcessor:
                     error_message=f"Scraper executed successfully: {result.message}",
                 )
                 self.logger.info(f"Job {scraper_job.id}: {handle_result['message']}")
+                result_entry["status"] = "SUCCESS"
                 return True
             else:
                 self.logger.error(f"Scraper execution failed: {result.error}")
@@ -165,6 +184,7 @@ class ScraperJobProcessor:
                     error_message=f"Scraper execution failed: {result.error}",
                 )
                 self._log_retry_result(scraper_job.id, handle_result)
+                result_entry["error"] = str(result.error)
                 return False
 
         except Exception as e:
@@ -178,6 +198,7 @@ class ScraperJobProcessor:
                 error_message=error_msg,
             )
             self._log_retry_result(scraper_job.id, handle_result)
+            result_entry["error"] = str(e)
             return False
 
     def execute_available_scrapers(self) -> None:
@@ -214,12 +235,56 @@ class ScraperJobProcessor:
         self.logger.info(f"Total processed: {len(available_jobs)}")
 
 
+def _send_execution_log_email(
+    log_path,
+    started_at: datetime,
+    finished_at: datetime,
+    job_results: list[dict],
+    fatal_error: str | None,
+    logger,
+) -> None:
+    """Build and send the per-run execution-log digest email — only when at
+    least one job failed or a fatal processor error occurred. Successful
+    runs do not generate an email."""
+    failed_results = [r for r in job_results if r["status"] != "SUCCESS"]
+    successful = len(job_results) - len(failed_results)
+
+    if not fatal_error and not failed_results:
+        logger.info("All scraper jobs succeeded — skipping execution-log email")
+        return
+
+    overall_status = "FATAL" if fatal_error else ("PARTIAL" if successful else "FAILED")
+
+    mailable = ScraperExecutionLogMailable(
+        run_started_at=started_at.strftime("%Y-%m-%d %H:%M:%S"),
+        run_finished_at=finished_at.strftime("%Y-%m-%d %H:%M:%S"),
+        subject_timestamp=finished_at.strftime("%m-%d-%Y %H:%M"),
+        total_jobs=len(job_results),
+        successful_jobs=successful,
+        failed_jobs=len(failed_results),
+        job_results=failed_results,
+        log_file_path=str(log_path) if log_path else None,
+        overall_status=overall_status,
+        fatal_error=fatal_error,
+    )
+
+    try:
+        EmailService(DjangoEmailBackend()).send(mailable)
+        logger.info("Execution-log email dispatched")
+    except Exception as e:
+        logger.error(f"Failed to send execution-log email: {e}", exc_info=True)
+
+
 def main():
     """Main processor function"""
-    # Setup logging
-    setup_logging(log_level="DEBUG")
+    started_at = datetime.now()
+    log_path = build_run_log_path(now=started_at)
+    setup_logging(log_level="INFO", log_file=str(log_path))
     logger = get_logger("main")
+    logger.info(f"Run log file: {log_path}")
+
     processor = None
+    fatal_error: str | None = None
 
     try:
         logger.info("Starting ScraperJob processor")
@@ -227,12 +292,27 @@ def main():
         processor.execute_available_scrapers()
         logger.info("ScraperJob processor completed successfully")
     except Exception as e:
-        logger.error(f"Error in main processor: {str(e)}", exc_info=True)
+        fatal_error = str(e)
+        logger.error(f"Error in main processor: {fatal_error}", exc_info=True)
     finally:
         if processor and processor.session_manager:
             logger.info("Cleaning up browser resources...")
             processor.session_manager.cleanup()
             logger.info("Cleanup completed")
+
+        finished_at = datetime.now()
+        job_results = processor.job_results if processor else []
+        # Flush handlers so the attachment includes everything written so far.
+        for handler in logging.getLogger().handlers:
+            handler.flush()
+        _send_execution_log_email(
+            log_path=log_path,
+            started_at=started_at,
+            finished_at=finished_at,
+            job_results=job_results,
+            fatal_error=fatal_error,
+            logger=logger,
+        )
 
 
 if __name__ == "__main__":

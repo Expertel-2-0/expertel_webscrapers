@@ -8,6 +8,10 @@ for email delivery backends.
 from abc import ABC, abstractmethod
 
 
+# Each attachment is (filename, content, mimetype). Content may be bytes or str.
+Attachment = tuple[str, bytes | str, str]
+
+
 class Mailable(ABC):
     """Abstract base class that defines the contract for all email types."""
 
@@ -34,6 +38,13 @@ class Mailable(ABC):
     @abstractmethod
     def get_text_content(self) -> str:
         """Get the plain text fallback content."""
+
+    def get_attachments(self) -> list[Attachment]:
+        """
+        Optional file attachments. Default: none. Subclasses override to
+        return a list of (filename, content, mimetype) tuples.
+        """
+        return []
 
 
 class EmailBackend(ABC):

@@ -1,0 +1,63 @@
+{% extends "emails/base_email.html" %}
+{% block title %}Scraper Execution Log – Expertel iQ{% endblock %}
+
+{% block content %}
+<p class="email-title">Scraper Execution Log</p>
+<p class="email-subtitle">
+  Run started at {{ run_started_at }} and finished at {{ run_finished_at }}.
+  Overall status: <strong>{{ overall_status }}</strong>.
+</p>
+
+<div class="info-card">
+  <div class="info-row">
+    <span class="info-label">Total jobs</span>
+    <span class="info-value">{{ total_jobs }}</span>
+  </div>
+  <div class="info-divider"></div>
+  <div class="info-row">
+    <span class="info-label">Successful</span>
+    <span class="info-value">{{ successful_jobs }}</span>
+  </div>
+  <div class="info-divider"></div>
+  <div class="info-row">
+    <span class="info-label">Failed</span>
+    <span class="info-value">{{ failed_jobs }}</span>
+  </div>
+  {% if fatal_error %}
+  <div class="info-divider"></div>
+  <div class="info-row">
+    <span class="info-label">Fatal error</span>
+    <span class="info-value">{{ fatal_error }}</span>
+  </div>
+  {% endif %}
+  {% if log_file_name %}
+  <div class="info-divider"></div>
+  <div class="info-row">
+    <span class="info-label">Attached log</span>
+    <span class="info-value">{{ log_file_name }}</span>
+  </div>
+  {% endif %}
+</div>
+
+{% if job_results %}
+<p class="email-title" style="font-size: 16px;">Failed jobs</p>
+<div class="info-card">
+  {% for r in job_results %}
+  <div class="info-row">
+    <span class="info-label">
+      [{{ r.status }}] {{ r.carrier }} / {{ r.scraper_type }}
+    </span>
+    <span class="info-value">
+      job #{{ r.job_id }} — {{ r.client }} / {{ r.account }}
+      {% if r.error %}<br><em>{{ r.error }}</em>{% endif %}
+    </span>
+  </div>
+  {% if not forloop.last %}<div class="info-divider"></div>{% endif %}
+  {% endfor %}
+</div>
+{% endif %}
+
+<p class="support-text">
+  The complete log for this run is attached to this email.
+</p>
+{% endblock %}

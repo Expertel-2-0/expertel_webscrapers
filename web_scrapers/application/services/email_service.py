@@ -37,6 +37,8 @@ class DjangoEmailBackend(EmailBackend):
         if to:
             email = EmailMultiAlternatives(subject, text_content, from_email, to)
             email.attach_alternative(html_content, "text/html")
+            for filename, content, mimetype in mailable.get_attachments():
+                email.attach(filename, content, mimetype)
             email.send()
 
 

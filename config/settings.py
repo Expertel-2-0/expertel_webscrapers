@@ -161,5 +161,12 @@ SCRAPER_ALERT_EMAILS = [
     if email.strip()
 ]
 
+# Recipients for the per-run scraper execution log digest
+SCRAPER_EXECUTION_LOG_EMAILS = [
+    email.strip()
+    for email in os.environ.get("SCRAPER_EXECUTION_LOG_EMAILS", "alejandro@expertel.com").split(",")
+    if email.strip()
+]
+
 # Frontend URL for building links in emails
 FRONTEND_URL = os.environ.get("FRONTEND_URL", "https://app.expertel.com")

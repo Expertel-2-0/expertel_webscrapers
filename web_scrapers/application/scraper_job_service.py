@@ -118,6 +118,7 @@ class ScraperJobService:
 
         # Build base query filter for PENDING jobs
         query_filter = Q(status=ScraperJobStatus.PENDING) & Q(scraper_config__isnull=False)
+#        query_filter &= Q(billing_cycle_id__in=(737, 712, 713, 714, 715, 716, 717))
 
 
         if include_null_available_at:

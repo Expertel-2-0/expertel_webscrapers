@@ -842,6 +842,7 @@ class ATTAuthStrategy(AuthBaseStrategy):
                 self.logger.warning("2FA failed - interrupting login")
                 return False
 
+            self._dismiss_modal_if_present()
             return self.is_logged_in()
 
         except MFACodeError as e:
@@ -975,13 +976,17 @@ class ATTAuthStrategy(AuthBaseStrategy):
         return True
 
     def _dismiss_modal_if_present(self) -> None:
-        modal_close_xpath = "/html/body/uws-wrapper[2]/div[2]/div/div[4]/div[2]"
-        if self.browser_wrapper.is_element_visible(modal_close_xpath, timeout=5000):
-            self.logger.info("Modal detected, dismissing...")
-            self.browser_wrapper.click_element(modal_close_xpath)
-            time.sleep(2)
-        else:
-            self.logger.debug("No modal detected")
+        # Verint feedback overlay ("We'd welcome your feedback!"); always decline.
+        no_thanks_xpath = '//div[contains(@class, "uws-invite__button-decline")]'
+        try:
+            if self.browser_wrapper.is_element_visible(no_thanks_xpath, timeout=5000):
+                self.logger.info("Feedback modal detected, clicking 'No, thanks'...")
+                self.browser_wrapper.click_element(no_thanks_xpath)
+                time.sleep(2)
+            else:
+                self.logger.debug("No feedback modal detected")
+        except Exception as e:
+            self.logger.warning(f"Could not dismiss feedback modal (continuing): {e}")
 
     def _find_first_email_option(self) -> Optional[str]:
         # The masked email suffix changes per account, so match radios by `label` starting with "Email".
