@@ -191,7 +191,7 @@ class RogersDailyUsageScraperStrategy(DailyUsageScraperStrategy):
         """Navigates to Manage Data Notifications tab."""
         try:
             self.logger.info("Clicking on Manage Data Notifications tab...")
-            tab_xpath = '//*[@id="header_menu"]/table/tbody/tr[2]/td/table/tbody/tr/td[6]/a'
+            tab_xpath = '//*[@id="header_menu"]//a[@href="/bizonline/prm-duns.do"]'
 
             if not self.browser_wrapper.is_element_visible(tab_xpath, timeout=10000):
                 self.logger.error("Manage Data Notifications tab not found")
