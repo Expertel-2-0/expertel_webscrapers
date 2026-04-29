@@ -23,7 +23,7 @@ class PlaywrightWrapper(BrowserWrapper):
         except KeyError:
             raise ValueError(f"Invalid selector_type: {selector_type}")
 
-    def goto(self, url: str, wait_until: str = "load") -> None:
+    def goto(self, url: str, wait_until: str = "domcontentloaded") -> None:
         self.page.goto(url, wait_until=wait_until)
 
     def find_element_by_xpath(self, selector: str, timeout: int = 10000, selector_type: str = "xpath") -> bool:
