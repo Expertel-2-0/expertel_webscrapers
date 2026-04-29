@@ -455,62 +455,149 @@ class TelusAuthStrategy(AuthBaseStrategy):
         except Exception:
             return False
 
-    def _wait_for_cloudflare_resolution(self, max_wait: int = 60) -> bool:
-        """Espera a que Cloudflare se auto-resuelva, si no, intenta click en el checkbox."""
-        intervals = max_wait // 5
-        for i in range(intervals):
-            time.sleep(5)
-            if not self._is_cloudflare_challenge():
-                self.logger.info("Cloudflare challenge resolved after %d seconds", (i + 1) * 5)
-                return True
+    def _get_cloudflare_iframe(self):
+        """Devuelve (frame_element, frame) del widget Turnstile, o (None, None)."""
+        selectors = [
+            "//iframe[contains(@src, 'challenges.cloudflare.com')]",
+            "//iframe[contains(@src, 'turnstile')]",
+            "//iframe[contains(@title, 'challenge')]",
+        ]
+        for selector in selectors:
+            try:
+                frame_element = self.browser_wrapper.page.query_selector(selector)
+                if frame_element:
+                    frame = frame_element.content_frame()
+                    if frame:
+                        return frame_element, frame
+            except Exception:
+                continue
+        return None, None
 
-        # Auto-resolve failed, try clicking the checkbox
-        self.logger.warning("Cloudflare did not auto-resolve, attempting to click challenge checkbox...")
-        if self._click_cloudflare_checkbox():
-            # Wait for resolution after click
-            for i in range(6):
-                time.sleep(5)
-                if not self._is_cloudflare_challenge():
-                    self.logger.info("Cloudflare resolved after clicking checkbox")
+    def _cloudflare_widget_state(self, frame) -> str:
+        """Inspecciona el iframe Turnstile y devuelve: success/fail/timeout/expired/error/verifying/idle/unknown."""
+        state_checks = [
+            ("success", "#success"),
+            ("fail", "#fail"),
+            ("timeout", "#timeout"),
+            ("expired", "#expired"),
+            ("error", "#challenge-error"),
+            ("verifying", "#verifying"),
+        ]
+        for name, sel in state_checks:
+            try:
+                el = frame.query_selector(sel)
+                if el and el.is_visible():
+                    return name
+            except Exception:
+                continue
+        try:
+            cb = frame.query_selector("input[type='checkbox']")
+            if cb and cb.is_visible():
+                return "idle"
+        except Exception:
+            pass
+        return "unknown"
+
+    def _wait_for_cloudflare_resolution(self, pre_click_wait: int = 15, post_click_wait: int = 30) -> bool:
+        """Espera auto-resolve; si no, clickea el checkbox y vuelve a esperar. Aborta temprano si el widget falla."""
+        # Phase 1: wait for auto-resolve, watching widget state
+        deadline = time.time() + pre_click_wait
+        while time.time() < deadline:
+            time.sleep(2)
+            if not self._is_cloudflare_challenge():
+                self.logger.info("Cloudflare challenge auto-resolved")
+                return True
+            _, frame = self._get_cloudflare_iframe()
+            if frame:
+                state = self._cloudflare_widget_state(frame)
+                if state == "success":
+                    self.logger.info("Cloudflare widget reports success during auto-resolve")
+                    time.sleep(3)
                     return True
+                if state in ("fail", "timeout", "expired", "error"):
+                    self.logger.warning("Cloudflare widget in '%s' state during auto-resolve, will attempt click", state)
+                    break
+
+        # Phase 2: click the checkbox
+        self.logger.warning("Cloudflare did not auto-resolve, attempting to click challenge checkbox...")
+        if not self._click_cloudflare_checkbox():
+            self.logger.error("Could not click Cloudflare checkbox")
+            return False
+
+        # Phase 3: wait for resolution after click
+        deadline = time.time() + post_click_wait
+        while time.time() < deadline:
+            time.sleep(2)
+            if not self._is_cloudflare_challenge():
+                self.logger.info("Cloudflare resolved after clicking checkbox")
+                return True
+            _, frame = self._get_cloudflare_iframe()
+            if frame:
+                state = self._cloudflare_widget_state(frame)
+                if state == "success":
+                    self.logger.info("Cloudflare widget reports success after click")
+                    time.sleep(3)
+                    return True
+                if state in ("fail", "timeout", "expired", "error"):
+                    self.logger.error("Cloudflare widget in '%s' state after click, aborting", state)
+                    return False
 
         self.logger.error("Cloudflare challenge could not be resolved")
         return False
 
     def _click_cloudflare_checkbox(self) -> bool:
-        """Intenta hacer click en el checkbox de Cloudflare 'I'm not a robot'."""
+        """Intenta hacer click en el checkbox de Cloudflare Turnstile."""
         try:
-            # Cloudflare turnstile renders inside an iframe
-            cf_iframe_selectors = [
-                "//iframe[contains(@src, 'challenges.cloudflare.com')]",
-                "//iframe[contains(@src, 'turnstile')]",
-                "//iframe[contains(@title, 'challenge')]",
-            ]
-            for selector in cf_iframe_selectors:
-                try:
-                    if self.browser_wrapper.is_element_visible(selector, timeout=3000):
-                        frame_element = self.browser_wrapper.page.query_selector(selector)
-                        if frame_element:
-                            frame = frame_element.content_frame()
-                            if frame:
-                                # Try clicking the checkbox inside the iframe
-                                checkbox = frame.query_selector("input[type='checkbox']") or frame.query_selector(".ctp-checkbox-label") or frame.query_selector("#challenge-stage")
-                                if checkbox:
-                                    checkbox.click()
-                                    self.logger.info("Clicked Cloudflare checkbox via iframe")
-                                    return True
-                                # Fallback: click center of iframe
-                                frame_element.click()
-                                self.logger.info("Clicked Cloudflare iframe element directly")
-                                return True
-                except Exception:
-                    continue
+            frame_element, frame = self._get_cloudflare_iframe()
+            if frame and frame_element:
+                # Wait until widget is actionable (not mid-verifying)
+                actionable_deadline = time.time() + 10
+                while time.time() < actionable_deadline:
+                    state = self._cloudflare_widget_state(frame)
+                    if state == "success":
+                        self.logger.info("Cloudflare already in success state, no click needed")
+                        return True
+                    if state in ("fail", "timeout", "expired", "error"):
+                        self.logger.warning("Cloudflare in '%s' state, click unlikely to help", state)
+                        return False
+                    if state == "verifying":
+                        time.sleep(1)
+                        continue
+                    break  # idle/unknown -> proceed to click
 
-            # Fallback: try direct selectors outside iframe
+                # Selectors aligned with current Turnstile DOM:
+                # #content > div[id=*] > .cb-c > label.cb-lb > span.cb-i + input[type=checkbox]
+                checkbox_selectors = [
+                    "input[type='checkbox']",
+                    "label.cb-lb",
+                    "label.cb-lb span.cb-i",
+                    "#content input[type='checkbox']",
+                    ".ctp-checkbox-label",  # legacy hCaptcha-style
+                    "#challenge-stage",     # legacy hCaptcha-style
+                ]
+                for sel in checkbox_selectors:
+                    try:
+                        el = frame.query_selector(sel)
+                        if el and el.is_visible():
+                            el.click()
+                            self.logger.info("Clicked Cloudflare checkbox via iframe selector: %s", sel)
+                            return True
+                    except Exception:
+                        continue
+
+                # Last resort inside iframe: click iframe element itself
+                try:
+                    frame_element.click()
+                    self.logger.info("Clicked Cloudflare iframe element directly")
+                    return True
+                except Exception:
+                    pass
+
+            # Fallback: direct selectors outside iframe (rare; widget usually lives in iframe)
             direct_selectors = [
                 "//div[contains(@class, 'cf-turnstile')]",
-                "//*[@id='challenge-stage']",
-                "//input[contains(@class, 'checkbox')]",
+                "//*[@id='content']//input[@type='checkbox']",
+                "//label[contains(@class, 'cb-lb')]",
             ]
             for selector in direct_selectors:
                 try:
