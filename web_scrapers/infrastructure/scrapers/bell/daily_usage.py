@@ -26,23 +26,17 @@ class BellDailyUsageScraperStrategy(DailyUsageScraperStrategy):
     def _find_files_section(self, config: ScraperConfig, billing_cycle: BillingCycle) -> Optional[Any]:
         """Busca la seccion de archivos de uso diario en el portal de Bell."""
         try:
-            # Determine if account selection is needed (Version 1) or already preselected (Version 2)
-            account_selection_header_xpath = (
-                "/html/body/div[1]/main/div[1]/div/div/div/account-selection/div[2]/section/div[1]/header/div/h1"
+            # Detectar si aparece la pantalla de seleccion de cuenta
+            account_selection_visible = self.browser_wrapper.find_element_by_xpath(
+                "//section[@id='dataContainer']", timeout=20000
             )
 
-            # Check if account selection header appears
-            account_selection_needed = self.browser_wrapper.find_element_by_xpath(
-                account_selection_header_xpath, timeout=5000
-            )
-
-            if account_selection_needed:
-                self.logger.info("Version 1: Account selection required")
+            if account_selection_visible:
+                self.logger.info("Account selection screen detected")
                 self._handle_account_selection(billing_cycle)
             else:
-                self.logger.info("Version 2: Account already preselected, continuing direct")
+                self.logger.info("Flow A: Account already preselected, continuing direct")
 
-            # Parte comun: Navegar a usage details y configurar dropdown
             self._navigate_to_usage_details()
 
             return {"section": "daily_usage", "ready_for_download": True}
@@ -52,21 +46,31 @@ class BellDailyUsageScraperStrategy(DailyUsageScraperStrategy):
             return None
 
     def _handle_account_selection(self, billing_cycle: BillingCycle):
-        """Maneja la seleccion de cuenta cuando es necesaria (Version 1)."""
-        self.logger.info("Executing account selection...")
+        """Selecciona la cuenta. Flujo B (clic directo) o C (buscar y luego clic)."""
+        account_number = billing_cycle.account.number
+        select_row_xpath = (
+            f"//tr[.//td[@data-table-col='banId' and normalize-space(text())='{account_number}']]"
+            f"//button[contains(@aria-label, 'Select')]"
+        )
 
-        # Buscar cuenta por numero
-        search_input_xpath = "/html[1]/body[1]/div[1]/main[1]/div[1]/div[1]/div[1]/div[1]/account-selection[1]/div[2]/section[1]/div[2]/global-search[1]/div[1]/section[2]/div[1]/div[1]/account-search[1]/div[1]/div[1]/div[1]/input[1]"
-        self.browser_wrapper.type_text(search_input_xpath, billing_cycle.account.number)
+        # Flujo B: la fila del BAN ya esta visible -> clic directo
+        if self.browser_wrapper.find_element_by_xpath(select_row_xpath, timeout=5000):
+            self.logger.info(f"Flow B: BAN {account_number} visible, clicking Select directly")
+            self.browser_wrapper.click_element(select_row_xpath)
+            time.sleep(5)
+            self.logger.info("Account selected successfully")
+            return
 
-        # Hacer clic en buscar
-        search_button_xpath = "/html[1]/body[1]/div[1]/main[1]/div[1]/div[1]/div[1]/div[1]/account-selection[1]/div[2]/section[1]/div[2]/global-search[1]/div[1]/section[2]/div[1]/div[1]/account-search[1]/div[1]/div[1]/div[2]/button[1]"
+        # Flujo C: hay que buscar el BAN primero
+        self.logger.info(f"Flow C: BAN {account_number} not visible, searching first")
+        search_input_xpath = "//account-search//input[@placeholder='Search by Billing account number']"
+        search_button_xpath = "//account-search//button[@name='btn_search']"
+
+        self.browser_wrapper.type_text(search_input_xpath, account_number)
         self.browser_wrapper.click_element(search_button_xpath)
         time.sleep(3)
 
-        # Seleccionar cuenta
-        select_account_xpath = "/html[1]/body[1]/div[1]/main[1]/div[1]/div[1]/div[1]/div[1]/account-selection[1]/div[2]/section[1]/div[2]/global-search[1]/div[1]/section[3]/div[1]/search[1]/div[2]/div[1]/div[2]/table[1]/tbody[1]/tr[1]/td[9]/button[1]"
-        self.browser_wrapper.click_element(select_account_xpath)
+        self.browser_wrapper.click_element(select_row_xpath)
         time.sleep(5)
         self.logger.info("Account selected successfully")
 
