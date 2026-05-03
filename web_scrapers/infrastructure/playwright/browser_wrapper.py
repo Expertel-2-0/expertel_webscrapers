@@ -100,6 +100,16 @@ class PlaywrightWrapper(BrowserWrapper):
     def wait_for_navigation(self, timeout: int = 30000) -> None:
         self.page.wait_for_load_state("networkidle", timeout=timeout)
 
+    def wait_for_page_load(self, timeout: int = 60000) -> None:
+        # Used by ~20 auth/scraper callsites that previously relied on a method removed
+        # in commit 18db7ae. Restored with `domcontentloaded` instead of the original
+        # `networkidle` (and the playwright default `load`) because both wait for
+        # subresources/long-poll connections that on SPAs like Telus/Rogers/Bell never
+        # settle, causing 60s timeouts that kill the run even though the page is
+        # interactive. `domcontentloaded` returns as soon as the HTML is parsed, which
+        # is what the callsites actually need before probing for selectors.
+        self.page.wait_for_load_state("domcontentloaded", timeout=timeout)
+
     def press_key(self, selector: str, key: str, timeout: int = 10000, selector_type: str = "xpath") -> None:
         resolved = self._resolve_selector(selector, selector_type)
         self.page.wait_for_selector(resolved, timeout=timeout)

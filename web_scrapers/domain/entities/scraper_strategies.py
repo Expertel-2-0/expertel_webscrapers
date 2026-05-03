@@ -41,7 +41,22 @@ class ScraperBaseStrategy(ABC):
         self.browser_wrapper = browser_wrapper
         self.job_id = job_id
         self.job_downloads_dir: Optional[str] = None
+        # In-flight warnings the orchestrator should persist to the job's stored
+        # log after execute() returns. Plain self.logger.warning() only reaches
+        # the file/console handler; entries appended here also reach the DB log
+        # via main.py -> ScraperJobService.append_job_log.
+        self.job_warnings: List[str] = []
         self.logger = logging.getLogger(self.__class__.__name__)
+
+    def _record_job_warning(self, message: str) -> None:
+        """Log a warning at WARNING level and queue it for the job's stored log.
+
+        Use this for anomalies that don't necessarily fail execution but matter
+        when reviewing a job after the fact — e.g. the page is not on the
+        expected state, an upstream value reads as zero, etc.
+        """
+        self.logger.warning(message)
+        self.job_warnings.append(message)
 
     @abstractmethod
     def execute(self, config: ScraperConfig, billing_cycle: BillingCycle, credentials: Credentials) -> ScraperResult:

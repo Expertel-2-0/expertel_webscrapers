@@ -118,7 +118,7 @@ class ScraperJobService:
 
         # Build base query filter for PENDING jobs
         query_filter = Q(status=ScraperJobStatus.PENDING) & Q(scraper_config__isnull=False)
-#        query_filter &= Q(billing_cycle_id__in=(737, 712, 713, 714, 715, 716, 717))
+#        query_filter &= Q(id__in=(4285, 4303, 4720, 4364, 4413, 4425))
 
 
         if include_null_available_at:
@@ -178,14 +178,23 @@ class ScraperJobService:
             # Another instance already claimed these jobs
             return []
 
-        # Fetch only the jobs we successfully claimed
+        # Fetch only the jobs we successfully claimed.
+        # Order so that jobs sharing a portal session run back-to-back:
+        # type_order -> carrier -> credential -> available_at.
+        # This lets SessionManager reuse the same login across consecutive jobs
+        # that share carrier+credential, avoiding extra logout/login (and 2FA) cycles.
         django_jobs = (
             DjangoScraperJob.objects.filter(
                 id__in=all_target_ids,
                 status=ScraperJobStatus.IN_PROGRESS,
             )
             .annotate(type_order=type_order)
-            .order_by("type_order", "available_at")
+            .order_by(
+                "type_order",
+                "scraper_config__carrier_id",
+                "scraper_config__credential_id",
+                "available_at",
+            )
         )
 
         results = []
@@ -356,6 +365,19 @@ class ScraperJobService:
             in_progress=in_progress,
             running=running,
         )
+
+    def append_job_log(self, scraper_job_id: int, message: str) -> None:
+        """Append a free-form entry to a job's stored log without changing its status.
+
+        Used by the orchestrator (main.py) to persist mid-execution warnings the
+        scraper raised — e.g. "0 shared allowance containers found" — so that
+        reviewers of the job record see them alongside the final outcome. Status
+        updates already append their own messages; this is for in-flight notes
+        that wouldn't otherwise survive past the file/console logger.
+        """
+        django_job = DjangoScraperJob.objects.get(id=scraper_job_id)
+        self._append_log(django_job, message)
+        django_job.save(update_fields=["log"])
 
     def update_scraper_job_status(
         self, scraper_job_id: int, status: ScraperJobStatus, log_message: Optional[str] = None

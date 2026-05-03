@@ -16,6 +16,18 @@ class MFACodeError(Exception):
     pass
 
 
+class InvalidCredentialsError(Exception):
+    """Exception raised when the carrier portal explicitly rejects the credentials.
+
+    Distinct from a generic login failure: it means the portal showed an inline
+    "incorrect email/password" message, so retrying with the same credentials is
+    pointless. Callers can use this signal to surface a specific error to the
+    user instead of the opaque "Login failed for Carrier.X".
+    """
+
+    pass
+
+
 class AuthBaseStrategy(ABC):
     """Estrategia base abstracta para autenticación."""
 

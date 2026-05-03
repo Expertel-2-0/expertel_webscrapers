@@ -49,6 +49,24 @@ class ScraperJobProcessor:
             f"{stats.total_pending} total pending"
         )
 
+    def _flush_scraper_warnings(self, scraper_strategy, job_id: int) -> None:
+        """Persist any in-flight warnings the scraper queued during execution.
+
+        Called from process_scraper_job after execute() returns (success or fail)
+        and from the exception handler. Without this step, scraper-side warnings
+        like "0 shared allowance containers found" only land in the file logger
+        and never reach the job's stored log, which is what reviewers look at
+        when triaging a failed run.
+        """
+        warnings = getattr(scraper_strategy, "job_warnings", None) or []
+        for message in warnings:
+            try:
+                self.scraper_job_service.append_job_log(job_id, f"WARNING: {message}")
+            except Exception:
+                self.logger.exception(
+                    "Failed to persist scraper warning to job %d log: %s", job_id, message
+                )
+
     def _log_retry_result(self, job_id: int, handle_result: dict) -> None:
         """Log information about retry scheduling"""
         if handle_result.get("retry_scheduled"):
@@ -99,6 +117,10 @@ class ScraperJobProcessor:
         self.logger.info(f"Carrier: {carrier.name}")
         self.logger.info(f"Account: {account.number}")
         self.logger.info(f"Available at: {scraper_job.available_at}")
+
+        # Declared up front so the except branch below can flush queued warnings
+        # even when execute() raises.
+        scraper_strategy = None
 
         try:
             # Update status to RUNNING
@@ -161,6 +183,10 @@ class ScraperJobProcessor:
             # Execute actual scraper with complete Pydantic structures
             result = scraper_strategy.execute(scraper_config, billing_cycle, credentials)
 
+            # Flush in-flight warnings before the final outcome is appended, so
+            # they appear in the job's stored log in chronological order.
+            self._flush_scraper_warnings(scraper_strategy, scraper_job.id)
+
             if result.success:
                 self.logger.info(f"Scraper executed successfully: {result.message}")
                 self.logger.info(f"Files processed: {len(result.files)}")
@@ -190,6 +216,13 @@ class ScraperJobProcessor:
         except Exception as e:
             error_msg = f"Error processing scraper: {str(e)}"
             self.logger.error(error_msg, exc_info=True)
+
+            # Persist any warnings the scraper queued before raising — useful when
+            # an in-flight anomaly preceded the exception (e.g. 0 containers found
+            # then dropdown timeout). No-op when scraper_strategy is None (failure
+            # before the scraper was instantiated).
+            if scraper_strategy is not None:
+                self._flush_scraper_warnings(scraper_strategy, scraper_job.id)
 
             # Handle exception - may schedule retry
             handle_result = self.scraper_job_service.handle_job_result(

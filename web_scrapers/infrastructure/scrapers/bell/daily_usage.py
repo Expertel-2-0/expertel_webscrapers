@@ -26,18 +26,13 @@ class BellDailyUsageScraperStrategy(DailyUsageScraperStrategy):
     def _find_files_section(self, config: ScraperConfig, billing_cycle: BillingCycle) -> Optional[Any]:
         """Busca la seccion de archivos de uso diario en el portal de Bell."""
         try:
-            # Detectar si aparece la pantalla de seleccion de cuenta
-            account_selection_visible = self.browser_wrapper.find_element_by_xpath(
-                "//section[@id='dataContainer']", timeout=20000
-            )
-
-            if account_selection_visible:
-                self.logger.info("Account selection screen detected")
-                self._handle_account_selection(billing_cycle)
-            else:
-                self.logger.info("Flow A: Account already preselected, continuing direct")
-
-            self._navigate_to_usage_details()
+            # Always navigate to Usage Details first; the BAN selection screen (when
+            # required) is detected and handled inside the navigation step. This mirrors
+            # bell/pdf_invoice.py's order. The previous version checked for the
+            # selection screen *before* navigating, which only worked when Bell
+            # happened to land the post-login browser on the selection screen — a
+            # state that depends on session cookies and is not the natural flow.
+            self._navigate_to_usage_details(billing_cycle)
 
             return {"section": "daily_usage", "ready_for_download": True}
 
@@ -74,7 +69,7 @@ class BellDailyUsageScraperStrategy(DailyUsageScraperStrategy):
         time.sleep(5)
         self.logger.info("Account selected successfully")
 
-    def _navigate_to_usage_details(self):
+    def _navigate_to_usage_details(self, billing_cycle: BillingCycle):
         """Navega a usage details y configura el dropdown (parte comun)."""
         self.logger.info("Navigating to usage details...")
 
@@ -87,6 +82,21 @@ class BellDailyUsageScraperStrategy(DailyUsageScraperStrategy):
         usage_details_xpath = "/html[1]/body[1]/div[1]/header[1]/div[2]/div[1]/div[1]/div[1]/div[1]/div[1]/div[2]/nav[1]/ul[1]/li[2]/div[1]/ul[1]/li[1]/ul[1]/li[1]/a[1]/span[1]"
         self.browser_wrapper.click_element(usage_details_xpath)
         self.browser_wrapper.wait_for_page_load()
+
+        # After clicking Usage Details, Bell shows one of two screens:
+        #   - #dataContainer "Select an account" — for multi-BAN accounts that need
+        #     a BAN picked before showing usage data
+        #   - the pool data view directly — for single-BAN / preselected accounts
+        # Branch on which one appears. 20s is enough for the selection screen to
+        # render; if it doesn't appear in that window, we assume the pool view is
+        # loading and fall through to the 60s settle wait below.
+        if self.browser_wrapper.find_element_by_xpath("//section[@id='dataContainer']", timeout=20000):
+            self.logger.info("Account selection screen detected — selecting BAN")
+            self._handle_account_selection(billing_cycle)
+            self.browser_wrapper.wait_for_page_load()
+        else:
+            self.logger.info("No selection screen — account already preselected, continuing direct")
+
         time.sleep(60)  # Esperar 60 segundos como especificado
         self.logger.info("Reports section found")
 
@@ -126,7 +136,19 @@ class BellDailyUsageScraperStrategy(DailyUsageScraperStrategy):
             containers_xpath = "//*[@id='sharedAllowanceAdminContainer']/div[2]"
             containers = self.browser_wrapper.page.locator(containers_xpath).all()
 
-            self.logger.info(f"Found {len(containers)} shared allowance containers")
+            if not containers:
+                # 0 containers means we're not on the pool data view (likely still on
+                # the BAN selection screen, or Bell rolled out a different layout).
+                # Routed through _record_job_warning so the anomaly survives in the
+                # scraper_job's stored log — otherwise the only trace would be the
+                # downstream dropdown failure, which doesn't explain why pool figures
+                # read as 0.
+                self._record_job_warning(
+                    "Found 0 shared allowance containers — page is not on the pool view; "
+                    "subsequent pool figures will read as 0 but are unreliable"
+                )
+            else:
+                self.logger.info(f"Found {len(containers)} shared allowance containers")
 
             for i, container in enumerate(containers):
                 try:
