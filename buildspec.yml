@@ -47,6 +47,7 @@ phases:
           ' && \
           echo 'New commit:' && git rev-parse HEAD && \
           sudo systemctl restart scraper.timer && \
+          sudo systemctl restart mfa && \
           echo 'Deployment completed successfully'"
 
         COMMAND_ID=$(aws ssm send-command \
