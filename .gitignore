@@ -275,3 +275,4 @@ emails_output.txt
 
 # Downloaded scraper files
 downloads/
+.claude/*
