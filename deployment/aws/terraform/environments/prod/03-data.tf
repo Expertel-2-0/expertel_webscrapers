@@ -49,14 +49,29 @@ data "aws_security_group" "backend_app" {
 # SSM PARAMETERS (from backend)
 # -----------------------------------------------------------------------------
 
-# Get database host from backend SSM
-data "aws_ssm_parameter" "db_host" {
-  name = "/${local.backend_app_name}/${var.environment}/database/host"
+# Get app-settings JSON from backend (contains db_host, db_port, db_name, etc.)
+data "aws_ssm_parameter" "backend_app_settings" {
+  name = "/${local.backend_app_name}/${var.environment}/config/app-settings"
 }
 
 # Get backend ALB URL
 data "aws_ssm_parameter" "backend_url" {
   name = "/${local.backend_app_name}/${var.environment}/config/alb-url"
+}
+
+# -----------------------------------------------------------------------------
+# PARSED BACKEND CONFIGURATION
+# -----------------------------------------------------------------------------
+# Parse the JSON from backend app-settings to extract database configuration
+
+locals {
+  backend_config = jsondecode(data.aws_ssm_parameter.backend_app_settings.value)
+
+  # Database configuration from backend (always defined in JSON)
+  db_host = local.backend_config.db_host
+  db_port = local.backend_config.db_port
+  db_name = local.backend_config.db_name
+  db_user = local.backend_config.db_user
 }
 
 # -----------------------------------------------------------------------------

@@ -259,6 +259,8 @@ AZURE_CLIENT_SECRET=$(get_ssm_parameter "/$APP_NAME/$ENVIRONMENT/azure/client-se
 AZURE_USER_EMAIL=$(get_ssm_parameter "/$APP_NAME/$ENVIRONMENT/azure/user-email")
 ANTHROPIC_API_KEY=$(get_ssm_parameter "/$APP_NAME/$ENVIRONMENT/anthropic/api-key")
 GEMINI_API_KEY=$(get_ssm_parameter "/$APP_NAME/$ENVIRONMENT/gemini/api-key")
+TWO_CAPTCHA_API_KEY=$(get_ssm_parameter "/$APP_NAME/$ENVIRONMENT/two-captcha/api-key")
+CAPSOLVER_API_KEY=$(get_ssm_parameter "/$APP_NAME/$ENVIRONMENT/capsolver/api-key")
 MFA_SERVICE_URL=$(get_ssm_parameter "/$APP_NAME/$ENVIRONMENT/mfa-service/url")
 NOVNC_PASSWORD=$(get_ssm_parameter "/$APP_NAME/$ENVIRONMENT/novnc/password")
 
@@ -270,6 +272,7 @@ EMAIL_HOST_PASSWORD=$(get_ssm_parameter "/$APP_NAME/$ENVIRONMENT/email/host-pass
 EMAIL_USE_TLS=$(get_ssm_parameter "/$APP_NAME/$ENVIRONMENT/email/use-tls")
 EMAIL_FROM_ADDRESS=$(get_ssm_parameter "/$APP_NAME/$ENVIRONMENT/email/from-address")
 SCRAPER_ALERT_EMAILS=$(get_ssm_parameter "/$APP_NAME/$ENVIRONMENT/email/alert-recipients")
+SCRAPER_EXECUTION_LOG_EMAILS=$(get_ssm_parameter "/$APP_NAME/$ENVIRONMENT/email/execution-log-recipients")
 FRONTEND_URL=$(get_ssm_parameter "/$APP_NAME/$ENVIRONMENT/config/frontend-url")
 
 # Set scraper user password (same as noVNC for convenience)
@@ -308,6 +311,10 @@ ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY
 # Gemini
 GEMINI_API_KEY=$GEMINI_API_KEY
 
+# Captcha solvers
+TWO_CAPTCHA_API_KEY=$TWO_CAPTCHA_API_KEY
+CAPSOLVER_API_KEY=$CAPSOLVER_API_KEY
+
 # MFA Service
 MFA_SERVICE_URL=$MFA_SERVICE_URL
 
@@ -319,6 +326,7 @@ EMAIL_HOST_PASSWORD=$EMAIL_HOST_PASSWORD
 EMAIL_USE_TLS=$EMAIL_USE_TLS
 EMAIL_FROM_ADDRESS=$EMAIL_FROM_ADDRESS
 SCRAPER_ALERT_EMAILS=$SCRAPER_ALERT_EMAILS
+SCRAPER_EXECUTION_LOG_EMAILS=$SCRAPER_EXECUTION_LOG_EMAILS
 FRONTEND_URL=$FRONTEND_URL
 
 # Environment

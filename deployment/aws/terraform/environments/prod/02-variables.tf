@@ -71,7 +71,7 @@ variable "novnc_allowed_cidrs" {
 variable "github_repository_url" {
   description = "GitHub repository URL"
   type        = string
-  default     = "https://github.com/alegranados03/expertel_webscrapers.git"
+  default     = "https://github.com/Expertel-2-0/expertel_webscrapers.git"
 }
 
 variable "github_branch" {

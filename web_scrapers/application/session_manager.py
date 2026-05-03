@@ -82,6 +82,12 @@ class SessionManager:
             if not self._current_auth_strategy:
                 return False
 
+            # Si la sesion previa ya quedo en ERROR o LOGGED_OUT, no tiene sentido
+            # navegar al portal para verificar — esa llamada puede tardar 60s+
+            # (Telus se atora en networkidle) y solo retrasa el job nuevo.
+            if not self.session_state.is_logged_in():
+                return False
+
             # Verificar si hay elementos de login visibles en la pantalla
             is_active = self._current_auth_strategy.is_logged_in()
 

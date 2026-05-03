@@ -32,6 +32,8 @@ SECRETS_REGISTRY=(
     "novnc/password|S|R|noVNC access password|noVNC Password"
     "anthropic/api-key|S|O|Anthropic API key|Anthropic API Key"
     "gemini/api-key|S|O|Gemini API key|Gemini API Key"
+    "two-captcha/api-key|S|O|2Captcha API key|2Captcha API Key"
+    "capsolver/api-key|S|O|CapSolver API key|CapSolver API Key"
     "email/host-user|P|O|SMTP host user|Email SMTP Host User"
     "email/host-password|S|O|SMTP host password|Email SMTP Host Password"
     "slack/webhook-url|S|O|Slack webhook URL|Slack Webhook URL"

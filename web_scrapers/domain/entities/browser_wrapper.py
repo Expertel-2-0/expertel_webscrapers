@@ -65,11 +65,6 @@ class BrowserWrapper(ABC):
         raise NotImplementedError()
 
     @abstractmethod
-    def wait_for_page_load(self, timeout: int = 60000) -> None:
-        """Espera a que la página cargue completamente."""
-        raise NotImplementedError()
-
-    @abstractmethod
     def is_element_visible(self, selector: str, timeout: int = 5000, selector_type: str = "xpath") -> bool:
         """Verifica si un elemento está visible."""
         raise NotImplementedError()

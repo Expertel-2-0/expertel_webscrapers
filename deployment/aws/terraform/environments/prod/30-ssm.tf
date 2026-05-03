@@ -6,41 +6,41 @@
 # =============================================================================
 
 # -----------------------------------------------------------------------------
-# DATABASE CONFIGURATION (reference from backend)
+# DATABASE CONFIGURATION (from backend app-settings JSON)
 # -----------------------------------------------------------------------------
 
 resource "aws_ssm_parameter" "db_host" {
   name        = "/${var.app_name}/${var.environment}/database/host"
-  description = "PostgreSQL host (from backend)"
+  description = "PostgreSQL host (from backend app-settings)"
   type        = "String"
-  value       = data.aws_ssm_parameter.db_host.value
+  value       = local.db_host
 
   tags = local.common_tags
 }
 
 resource "aws_ssm_parameter" "db_name" {
   name        = "/${var.app_name}/${var.environment}/database/name"
-  description = "PostgreSQL database name"
+  description = "PostgreSQL database name (from backend app-settings)"
   type        = "String"
-  value       = "experteliq2_${var.environment}"
+  value       = local.db_name
 
   tags = local.common_tags
 }
 
 resource "aws_ssm_parameter" "db_port" {
   name        = "/${var.app_name}/${var.environment}/database/port"
-  description = "PostgreSQL port"
+  description = "PostgreSQL port (from backend app-settings)"
   type        = "String"
-  value       = "5432"
+  value       = local.db_port
 
   tags = local.common_tags
 }
 
 resource "aws_ssm_parameter" "db_username" {
   name        = "/${var.app_name}/${var.environment}/database/username"
-  description = "PostgreSQL username"
+  description = "PostgreSQL username (from backend app-settings)"
   type        = "String"
-  value       = "experteliq2"
+  value       = local.db_user
 
   tags = local.common_tags
 }
@@ -51,9 +51,9 @@ resource "aws_ssm_parameter" "db_username" {
 
 resource "aws_ssm_parameter" "backend_url" {
   name        = "/${var.app_name}/${var.environment}/backend-api/url"
-  description = "Backend API URL"
+  description = "Backend API URL (from backend alb-url, already includes http://)"
   type        = "String"
-  value       = "http://${data.aws_ssm_parameter.backend_url.value}"
+  value       = data.aws_ssm_parameter.backend_url.value
 
   tags = local.common_tags
 }
@@ -92,7 +92,7 @@ resource "aws_ssm_parameter" "email_host" {
   name        = "/${var.app_name}/${var.environment}/email/host"
   description = "SMTP host"
   type        = "String"
-  value       = "smtp.your-provider.com"
+  value       = "smtp.office365.com"
 
   tags = local.common_tags
 }
@@ -128,7 +128,16 @@ resource "aws_ssm_parameter" "scraper_alert_emails" {
   name        = "/${var.app_name}/${var.environment}/email/alert-recipients"
   description = "Comma-separated list of scraper alert email recipients"
   type        = "String"
-  value       = "ops@expertel.com"
+  value       = "nelson@expertel.com"
+
+  tags = local.common_tags
+}
+
+resource "aws_ssm_parameter" "scraper_execution_log_emails" {
+  name        = "/${var.app_name}/${var.environment}/email/execution-log-recipients"
+  description = "Comma-separated recipients for scraper execution log summaries"
+  type        = "String"
+  value       = "alejandro@expertel.com"
 
   tags = local.common_tags
 }
@@ -137,7 +146,9 @@ resource "aws_ssm_parameter" "frontend_url" {
   name        = "/${var.app_name}/${var.environment}/config/frontend-url"
   description = "Frontend URL for building links in emails"
   type        = "String"
-  value       = "https://app.expertel.com"
+  # Day-1 prod: HTTP via Cloudflare DNS-only CNAME (no TLS yet).
+  # Switch to https://eiq.expertel.com once Cloudflare is proxied + Full strict.
+  value       = "http://eiq.expertel.com"
 
   tags = local.common_tags
 }

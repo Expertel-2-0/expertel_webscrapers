@@ -83,9 +83,6 @@ class PlaywrightWrapper(BrowserWrapper):
         resolved = self._resolve_selector(selector, selector_type)
         self.page.wait_for_selector(resolved, timeout=timeout)
 
-    def wait_for_page_load(self, timeout: int = 60000) -> None:
-        self.page.wait_for_load_state("networkidle", timeout=timeout)
-
     def is_element_visible(self, selector: str, timeout: int = 5000, selector_type: str = "xpath") -> bool:
         try:
             resolved = self._resolve_selector(selector, selector_type)
