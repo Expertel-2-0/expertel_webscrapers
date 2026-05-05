@@ -34,7 +34,10 @@ module "scraper_instance" {
 
   # Logs
   log_retention_days = var.log_retention_days
-  create_elastic_ip  = true
+  # No Elastic IP: nadie externo se conecta a esta instancia. Si en el futuro
+  # alguien necesita IP estable (ej. allowlist en un portal), cambiar a true
+  # y validar quota EC2-VPC Elastic IPs en us-east-2 (default 5).
+  create_elastic_ip  = false
 
   tags = local.common_tags
 

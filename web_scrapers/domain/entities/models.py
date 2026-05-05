@@ -3,7 +3,7 @@ from datetime import date, datetime
 from typing import List, Optional
 
 from cryptography.fernet import Fernet
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from django.conf import settings
 
@@ -79,6 +79,13 @@ class Account(BaseModel):
     carrier: Optional["Carrier"] = None
 
     model_config = {"from_attributes": True}
+
+    @field_validator("billing_day", mode="before")
+    @classmethod
+    def _default_billing_day_when_invalid(cls, value):
+        if isinstance(value, int) and 1 <= value <= 31:
+            return value
+        return 15
 
 
 class BillingCycle(BaseModel):

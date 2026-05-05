@@ -461,6 +461,9 @@ switch ($Command) {
         Write-Host ""
         if ($allValid) {
             Write-Success "All required secrets are configured"
+            # Explicit exit 0: AWS CLI calls for missing optional secrets leak a
+            # non-zero $LASTEXITCODE that would otherwise propagate to the caller.
+            exit 0
         }
         else {
             Write-Error "Some required secrets are missing"
