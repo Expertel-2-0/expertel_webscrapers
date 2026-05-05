@@ -37,6 +37,14 @@ resource "aws_iam_role" "codebuild" {
   tags = var.tags
 }
 
+# Lookup the GitHub connection so we can grant UseConnection to the role.
+# Webhook-triggered builds use the connection implicitly via the webhook
+# resource; manual `aws codebuild start-build` calls fail with
+# "Access denied to connection" unless the role itself has this permission.
+data "aws_codestarconnections_connection" "github" {
+  name = var.github_connection_name
+}
+
 resource "aws_iam_role_policy" "codebuild" {
   name = "${var.app_name}-${var.environment}-codebuild-policy"
   role = aws_iam_role.codebuild.id
@@ -82,6 +90,18 @@ resource "aws_iam_role_policy" "codebuild" {
           "${aws_s3_bucket.codebuild_cache.arn}",
           "${aws_s3_bucket.codebuild_cache.arn}/*"
         ]
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "codeconnections:UseConnection",
+          "codeconnections:GetConnection",
+          "codeconnections:GetConnectionToken",
+          "codestar-connections:UseConnection",
+          "codestar-connections:GetConnection",
+          "codestar-connections:GetConnectionToken"
+        ]
+        Resource = data.aws_codestarconnections_connection.github.arn
       }
     ]
   })

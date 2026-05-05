@@ -64,6 +64,12 @@ variable "enable_webhook" {
   default     = false
 }
 
+variable "github_connection_name" {
+  description = "Name of the CodeStar/CodeConnections GitHub connection used by CodeBuild to fetch source. Required for manual `aws codebuild start-build` calls — webhook-triggered builds work without it."
+  type        = string
+  default     = "experteliq2-codebuild"
+}
+
 variable "tags" {
   description = "Tags to apply to resources"
   type        = map(string)

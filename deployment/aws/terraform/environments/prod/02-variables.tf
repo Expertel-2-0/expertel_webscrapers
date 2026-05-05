@@ -83,7 +83,7 @@ variable "github_branch" {
 variable "enable_webhook" {
   description = "Enable GitHub webhook for automatic builds"
   type        = bool
-  default     = false  # Set to true after first manual deploy
+  default     = true
 }
 
 # -----------------------------------------------------------------------------
