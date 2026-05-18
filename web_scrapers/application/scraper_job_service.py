@@ -77,17 +77,13 @@ class ScraperJobService:
 
     def get_available_scraper_jobs(self, include_null_available_at: bool = True) -> List[ScraperJob]:
         """
-        Get and claim scraper jobs for execution.
+        Get and claim scraper jobs for execution — ONE scraper_config_id per run.
 
-        Strategy:
-        - daily_usage: ALL available jobs regardless of scraper_config (avoids backlog with 30-min cycles)
-        - monthly_reports / pdf_invoice: jobs from a single scraper_config (existing behavior)
-
-        This method:
-        1. Fetches all available daily_usage jobs
-        2. Fetches all monthly/pdf jobs for the first available scraper_config
-        3. Atomically marks the combined set as IN_PROGRESS
-        4. Returns those jobs (main.py will mark them as RUNNING when executing)
+        Strategy: pick the first scraper_config with any PENDING job available
+        (across all types) and claim *all* its available jobs (monthly + daily +
+        pdf). This guarantees a single credential/account is in flight per run,
+        which prevents MFA-email mix-ups when multiple accounts of the same
+        carrier share a notification mailbox.
 
         Args:
             include_null_available_at: Whether to include jobs with available_at=NULL for compatibility
@@ -118,8 +114,6 @@ class ScraperJobService:
 
         # Build base query filter for PENDING jobs
         query_filter = Q(status=ScraperJobStatus.PENDING) & Q(scraper_config__isnull=False)
-#        query_filter &= Q(id__in=(4285, 4303, 4720, 4364, 4413, 4425))
-
 
         if include_null_available_at:
             query_filter &= Q(available_at__lte=current_time) | Q(available_at__isnull=True)
@@ -134,41 +128,36 @@ class ScraperJobService:
             default=Value(99),
         )
 
-        # --- Part 1: All available daily_usage jobs (cross-config) ---
-        daily_usage_ids = list(
-            DjangoScraperJob.objects.filter(
-                query_filter,
-                type=ScraperType.DAILY_USAGE,
-            ).values_list("id", flat=True)
-        )
-
-        # --- Part 2: monthly_reports / pdf_invoice from a single scraper_config ---
-        non_daily_filter = query_filter & ~Q(type=ScraperType.DAILY_USAGE)
-
-        first_non_daily_job = (
-            DjangoScraperJob.objects.filter(non_daily_filter)
+        # Pick the first scraper_config_id with any available PENDING job.
+        # Ordering by credential/account first keeps the selection stable across runs.
+        first_job = (
+            DjangoScraperJob.objects.filter(query_filter)
             .annotate(type_order=type_order)
-            .order_by("scraper_config__credential_id", "scraper_config__account_id", "type_order", "available_at")
+            .order_by(
+                "scraper_config__credential_id",
+                "scraper_config__account_id",
+                "type_order",
+                "available_at",
+            )
             .first()
         )
 
-        non_daily_ids: List[int] = []
-        if first_non_daily_job:
-            non_daily_ids = list(
-                DjangoScraperJob.objects.filter(
-                    non_daily_filter,
-                    scraper_config_id=first_non_daily_job.scraper_config_id,
-                ).values_list("id", flat=True)
-            )
+        if not first_job:
+            return []
 
-        # --- Combine both sets ---
-        all_target_ids = list(set(daily_usage_ids) | set(non_daily_ids))
+        # Claim ALL available jobs of that single scraper_config_id, regardless of type.
+        all_target_ids = list(
+            DjangoScraperJob.objects.filter(
+                query_filter,
+                scraper_config_id=first_job.scraper_config_id,
+            ).values_list("id", flat=True)
+        )
 
         if not all_target_ids:
             return []
 
-        # Atomically mark the combined set as IN_PROGRESS
-        # status=PENDING filter prevents race conditions
+        # Atomically mark the set as IN_PROGRESS.
+        # status=PENDING filter prevents race conditions.
         updated_count = DjangoScraperJob.objects.filter(
             id__in=all_target_ids,
             status=ScraperJobStatus.PENDING,
@@ -178,23 +167,15 @@ class ScraperJobService:
             # Another instance already claimed these jobs
             return []
 
-        # Fetch only the jobs we successfully claimed.
-        # Order so that jobs sharing a portal session run back-to-back:
-        # type_order -> carrier -> credential -> available_at.
-        # This lets SessionManager reuse the same login across consecutive jobs
-        # that share carrier+credential, avoiding extra logout/login (and 2FA) cycles.
+        # Order claimed jobs by type so the session is reused across them
+        # (monthly -> daily -> pdf), then by available_at as a tiebreaker.
         django_jobs = (
             DjangoScraperJob.objects.filter(
                 id__in=all_target_ids,
                 status=ScraperJobStatus.IN_PROGRESS,
             )
             .annotate(type_order=type_order)
-            .order_by(
-                "type_order",
-                "scraper_config__carrier_id",
-                "scraper_config__credential_id",
-                "available_at",
-            )
+            .order_by("type_order", "available_at")
         )
 
         results = []

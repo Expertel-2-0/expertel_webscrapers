@@ -1,5 +1,6 @@
 import logging
 import os
+import shutil
 import time
 from pathlib import Path
 from typing import Optional
@@ -792,6 +793,7 @@ class RogersAuthStrategy(AuthBaseStrategy):
                 self.browser_wrapper.wait_for_page_load()
                 time.sleep(3)
                 self.logger.info("Logout successful in Rogers")
+                self._cleanup_persistent_profile()
                 return True
             else:
                 self.logger.error("Logout button not found")
@@ -800,6 +802,22 @@ class RogersAuthStrategy(AuthBaseStrategy):
         except Exception as e:
             self.logger.error(f"Error during logout in Rogers: {str(e)}")
             return False
+
+    def _cleanup_persistent_profile(self) -> None:
+        # Borra el browser_profile persistente de Rogers tras logout exitoso para que
+        # el proximo run arranque con perfil limpio. Solo se invoca cuando se hizo click
+        # en logout — si nunca se inicio sesion, el dir no se toca.
+        # Nota: el proceso del run (main.py bajo flock) muere al final, por lo que los
+        # locks del navegador ya se liberaron. ignore_errors cubre el caso de archivos
+        # aun bloqueados en entornos donde el proceso siga vivo (dev local).
+        profile_dir = Path(os.getcwd()) / "browser_profiles" / "rogers_profile"
+        if not profile_dir.exists():
+            return
+        try:
+            shutil.rmtree(profile_dir, ignore_errors=True)
+            self.logger.info(f"Rogers persistent profile deleted: {profile_dir}")
+        except Exception as e:
+            self.logger.warning(f"Could not delete Rogers persistent profile {profile_dir}: {e}")
 
     def is_logged_in(self) -> bool:
         # Two independent signals: the welcome banner is the most direct, but its class name
