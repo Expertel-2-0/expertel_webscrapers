@@ -634,7 +634,7 @@ class TelusAuthStrategy(AuthBaseStrategy):
             pass
         return "unknown"
 
-    def _wait_for_cloudflare_resolution(self, pre_click_wait: int = 15, post_click_wait: int = 30) -> bool:
+    def _wait_for_cloudflare_resolution(self, pre_click_wait: int = 60, post_click_wait: int = 180) -> bool:
         """Espera auto-resolve; si no, clickea el checkbox y vuelve a esperar. Aborta temprano si el widget falla."""
         # Phase 1: wait for auto-resolve, watching widget state
         deadline = time.time() + pre_click_wait
