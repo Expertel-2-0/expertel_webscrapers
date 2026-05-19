@@ -1,5 +1,6 @@
 import logging
 import os
+import random
 import shutil
 import time
 from pathlib import Path
@@ -330,6 +331,13 @@ class TelusAuthStrategy(AuthBaseStrategy):
         try:
             self.logger.info("Starting login in Telus...")
 
+            # Wire the CF guard into the wrapper so any goto/click/wait_for_page_load
+            # triggers _is_cloudflare_challenge + resolution. Without this, CF
+            # challenges that appear AFTER the initial login (subdomain hops,
+            # account switches, report navigation) break the flow with no recovery.
+            if hasattr(self.browser_wrapper, "set_post_action_hook"):
+                self.browser_wrapper.set_post_action_hook(self.ensure_no_cloudflare)
+
             login_url = self.get_login_url()
             self.browser_wrapper.goto(login_url, wait_until="domcontentloaded")
             self.browser_wrapper.wait_for_page_load()
@@ -591,22 +599,39 @@ class TelusAuthStrategy(AuthBaseStrategy):
         except Exception:
             return False
 
-    def _get_cloudflare_iframe(self):
-        """Devuelve (frame_element, frame) del widget Turnstile, o (None, None)."""
-        selectors = [
-            "//iframe[contains(@src, 'challenges.cloudflare.com')]",
-            "//iframe[contains(@src, 'turnstile')]",
-            "//iframe[contains(@title, 'challenge')]",
-        ]
-        for selector in selectors:
-            try:
-                frame_element = self.browser_wrapper.page.query_selector(selector)
-                if frame_element:
-                    frame = frame_element.content_frame()
-                    if frame:
-                        return frame_element, frame
-            except Exception:
-                continue
+    def ensure_no_cloudflare(self) -> None:
+        """Run the resolver if a CF challenge appears at this moment. Designed to
+        be wired into PlaywrightWrapper as a post-action hook so any navigation
+        the Telus scraper makes after login is also covered — Turnstile shows up
+        again on cross-subdomain hops (my-telus -> ebill, account switches, etc.)
+        and previously broke the run because nothing checked for it mid-flow.
+        """
+        if self._is_cloudflare_challenge():
+            self.logger.warning("[cf-guard] Cloudflare challenge detected mid-flow, resolving")
+            self._wait_for_cloudflare_resolution()
+
+    def _get_cloudflare_iframe(self, timeout_ms: int = 4000):
+        """Devuelve (frame_element, frame) del widget Turnstile, o (None, None).
+
+        Cloudflare's interstitial wraps the widget iframe inside a CLOSED shadow
+        root on the parent page, so page.query_selector() cannot reach it. We
+        iterate page.frames (Playwright tracks every frame via CDP regardless
+        of shadow DOM) and recover the parent-page iframe handle via
+        frame_element() — its bounding_box() is in main-page coords, which is
+        exactly what _humanlike_click_iframe() needs to drive page.mouse.
+        """
+        deadline = time.time() + (timeout_ms / 1000)
+        while time.time() < deadline:
+            for frame in self.browser_wrapper.page.frames:
+                url = frame.url or ""
+                if "challenges.cloudflare.com" in url or "turnstile" in url:
+                    try:
+                        handle = frame.frame_element()
+                        if handle:
+                            return handle, frame
+                    except Exception:
+                        continue
+            time.sleep(0.3)
         return None, None
 
     def _cloudflare_widget_state(self, frame) -> str:
@@ -634,7 +659,7 @@ class TelusAuthStrategy(AuthBaseStrategy):
             pass
         return "unknown"
 
-    def _wait_for_cloudflare_resolution(self, pre_click_wait: int = 60, post_click_wait: int = 180) -> bool:
+    def _wait_for_cloudflare_resolution(self, pre_click_wait: int = 15, post_click_wait: int = 30) -> bool:
         """Espera auto-resolve; si no, clickea el checkbox y vuelve a esperar. Aborta temprano si el widget falla."""
         # Phase 1: wait for auto-resolve, watching widget state
         deadline = time.time() + pre_click_wait
@@ -682,73 +707,77 @@ class TelusAuthStrategy(AuthBaseStrategy):
         return False
 
     def _click_cloudflare_checkbox(self) -> bool:
-        """Intenta hacer click en el checkbox de Cloudflare Turnstile."""
+        """Click the Turnstile checkbox using a humanlike mouse trajectory.
+
+        Telus's CF interstitial puts the widget inside a closed shadow root, so
+        a query_selector-based click on the iframe contents cannot reach the
+        checkbox. We drive page.mouse directly in main-page coordinates derived
+        from the iframe's bounding_box — the OS-level mouse pipeline doesn't
+        respect shadow DOM, which is the same reason a manual click works.
+        """
         try:
             frame_element, frame = self._get_cloudflare_iframe()
-            if frame and frame_element:
-                # Wait until widget is actionable (not mid-verifying)
-                actionable_deadline = time.time() + 10
-                while time.time() < actionable_deadline:
-                    state = self._cloudflare_widget_state(frame)
-                    if state == "success":
-                        self.logger.info("Cloudflare already in success state, no click needed")
-                        return True
-                    if state in ("fail", "timeout", "expired", "error"):
-                        self.logger.warning("Cloudflare in '%s' state, click unlikely to help", state)
-                        return False
-                    if state == "verifying":
-                        time.sleep(1)
-                        continue
-                    break  # idle/unknown -> proceed to click
+            if not frame_element or not frame:
+                self.logger.warning("Could not find Cloudflare iframe to click")
+                return False
 
-                # Selectors aligned with current Turnstile DOM:
-                # #content > div[id=*] > .cb-c > label.cb-lb > span.cb-i + input[type=checkbox]
-                checkbox_selectors = [
-                    "input[type='checkbox']",
-                    "label.cb-lb",
-                    "label.cb-lb span.cb-i",
-                    "#content input[type='checkbox']",
-                    ".ctp-checkbox-label",  # legacy hCaptcha-style
-                    "#challenge-stage",     # legacy hCaptcha-style
-                ]
-                for sel in checkbox_selectors:
-                    try:
-                        el = frame.query_selector(sel)
-                        if el and el.is_visible():
-                            el.click()
-                            self.logger.info("Clicked Cloudflare checkbox via iframe selector: %s", sel)
-                            return True
-                    except Exception:
-                        continue
-
-                # Last resort inside iframe: click iframe element itself
-                try:
-                    frame_element.click()
-                    self.logger.info("Clicked Cloudflare iframe element directly")
+            # Wait until widget is actionable (not mid-verifying)
+            actionable_deadline = time.time() + 10
+            while time.time() < actionable_deadline:
+                state = self._cloudflare_widget_state(frame)
+                if state == "success":
+                    self.logger.info("Cloudflare already in success state, no click needed")
                     return True
-                except Exception:
-                    pass
-
-            # Fallback: direct selectors outside iframe (rare; widget usually lives in iframe)
-            direct_selectors = [
-                "//div[contains(@class, 'cf-turnstile')]",
-                "//*[@id='content']//input[@type='checkbox']",
-                "//label[contains(@class, 'cb-lb')]",
-            ]
-            for selector in direct_selectors:
-                try:
-                    if self.browser_wrapper.is_element_visible(selector, timeout=2000):
-                        self.browser_wrapper.click_element(selector)
-                        self.logger.info(f"Clicked Cloudflare element: {selector}")
-                        return True
-                except Exception:
+                if state in ("fail", "timeout", "expired", "error"):
+                    self.logger.warning("Cloudflare in '%s' state, click unlikely to help", state)
+                    return False
+                if state == "verifying":
+                    time.sleep(1)
                     continue
+                break  # idle/unknown -> proceed to click
 
-            self.logger.warning("Could not find Cloudflare checkbox to click")
-            return False
+            return self._humanlike_click_iframe(frame_element)
         except Exception as e:
             self.logger.error(f"Error clicking Cloudflare checkbox: {e}")
             return False
+
+    def _humanlike_click_iframe(
+        self,
+        frame_element,
+        target_offset_x: float = 28,
+        target_offset_y: float = 30,
+        jitter_px: float = 4,
+    ) -> bool:
+        """Drive page.mouse with a curved trajectory + hover dwell + natural
+        click duration. Coords are in main-page space from the iframe's
+        bounding_box, so this works even when the iframe lives inside a closed
+        shadow root (which is why a normal element.click() fails on Telus CF).
+        """
+        box = frame_element.bounding_box()
+        if not box:
+            self.logger.warning("Cloudflare iframe has no bounding_box, cannot click")
+            return False
+
+        jitter = lambda: random.uniform(-jitter_px, jitter_px)
+        target_x = box["x"] + target_offset_x + jitter()
+        target_y = box["y"] + target_offset_y + jitter()
+        waypoint_x = target_x + random.uniform(-180, 180)
+        waypoint_y = target_y - random.uniform(60, 180)
+
+        page = self.browser_wrapper.page
+        page.mouse.move(waypoint_x, waypoint_y, steps=10)
+        time.sleep(random.uniform(0.04, 0.12))
+        page.mouse.move(target_x, target_y, steps=25)
+        time.sleep(random.uniform(0.18, 0.42))
+        page.mouse.down()
+        time.sleep(random.uniform(0.04, 0.11))
+        page.mouse.up()
+
+        self.logger.info(
+            "Humanlike click on CF widget at (%.1f, %.1f) — iframe box x=%.1f y=%.1f w=%.0f h=%.0f",
+            target_x, target_y, box["x"], box["y"], box["width"], box["height"],
+        )
+        return True
 
     def _dismiss_cookie_banner(self) -> None:
         """Dismiss cookie consent banner if present."""

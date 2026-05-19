@@ -10,6 +10,31 @@ class PlaywrightWrapper(BrowserWrapper):
 
     def __init__(self, page: Page):
         self.page = page
+        # Optional callback fired after every navigation-like action. Opt-in
+        # via set_post_action_hook(). Used by TelusAuthStrategy to detect and
+        # resolve Cloudflare challenges that appear mid-flow (between pages,
+        # after a click, etc.) — see _post_action() for the recursion guard.
+        self._post_action_hook = None
+        self._in_post_action = False
+
+    def set_post_action_hook(self, callback) -> None:
+        """Register a no-arg callable that runs after goto / click / wait_for_page_load /
+        wait_for_navigation. Pass None to clear. The hook is reentrancy-protected so
+        the callback itself can call wrapper methods without infinite recursion.
+        """
+        self._post_action_hook = callback
+
+    def _post_action(self) -> None:
+        if self._post_action_hook is None or self._in_post_action:
+            return
+        self._in_post_action = True
+        try:
+            self._post_action_hook()
+        except Exception:
+            # Hook failures should never break the underlying navigation
+            pass
+        finally:
+            self._in_post_action = False
 
     def _resolve_selector(self, selector: str, selector_type: str = "xpath") -> str:
         strategies = {
@@ -25,6 +50,7 @@ class PlaywrightWrapper(BrowserWrapper):
 
     def goto(self, url: str, wait_until: str = "domcontentloaded") -> None:
         self.page.goto(url, wait_until=wait_until)
+        self._post_action()
 
     def find_element_by_xpath(self, selector: str, timeout: int = 10000, selector_type: str = "xpath") -> bool:
         try:
@@ -38,6 +64,7 @@ class PlaywrightWrapper(BrowserWrapper):
         resolved = self._resolve_selector(selector, selector_type)
         self.page.wait_for_selector(resolved, timeout=timeout)
         self.page.click(resolved)
+        self._post_action()
 
     def double_click_element(self, selector: str, timeout: int = 10000, selector_type: str = "xpath") -> None:
         resolved = self._resolve_selector(selector, selector_type)
@@ -99,6 +126,7 @@ class PlaywrightWrapper(BrowserWrapper):
 
     def wait_for_navigation(self, timeout: int = 30000) -> None:
         self.page.wait_for_load_state("networkidle", timeout=timeout)
+        self._post_action()
 
     def wait_for_page_load(self, timeout: int = 60000) -> None:
         # Used by ~20 auth/scraper callsites that previously relied on a method removed
@@ -109,6 +137,7 @@ class PlaywrightWrapper(BrowserWrapper):
         # interactive. `domcontentloaded` returns as soon as the HTML is parsed, which
         # is what the callsites actually need before probing for selectors.
         self.page.wait_for_load_state("domcontentloaded", timeout=timeout)
+        self._post_action()
 
     def press_key(self, selector: str, key: str, timeout: int = 10000, selector_type: str = "xpath") -> None:
         resolved = self._resolve_selector(selector, selector_type)
