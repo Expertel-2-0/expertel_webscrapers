@@ -77,22 +77,27 @@ def wipe_telus_cdp_profile() -> None:
         logger.info(f"[provoke] no profile to wipe at {profile}")
 
 
-def find_cf_iframe(page):
-    """Returns (frame_element, frame, selector_used) for the Turnstile iframe, or (None, None, None)."""
-    selectors = [
-        "//iframe[contains(@src, 'challenges.cloudflare.com')]",
-        "//iframe[contains(@src, 'turnstile')]",
-        "//iframe[contains(@title, 'challenge')]",
-    ]
-    for sel in selectors:
-        try:
-            frame_element = page.query_selector(sel)
-            if frame_element:
-                frame = frame_element.content_frame()
-                if frame:
-                    return frame_element, frame, sel
-        except Exception:
-            continue
+def find_cf_iframe(page, timeout_ms=4000):
+    """Returns (frame_element, frame, source) for the Turnstile iframe, or (None, None, None).
+
+    Cloudflare's interstitial wraps the widget iframe inside a CLOSED shadow root
+    on the parent page, so page.query_selector(...) cannot find it. We use
+    page.frames (Playwright tracks every frame via CDP regardless of shadow DOM)
+    and then frame.frame_element() to recover the parent-page iframe handle —
+    which is enough to get a bounding_box() and click in main-page coords.
+    """
+    deadline = time.time() + (timeout_ms / 1000)
+    while time.time() < deadline:
+        for frame in page.frames:
+            url = frame.url or ""
+            if "challenges.cloudflare.com" in url or "turnstile" in url:
+                try:
+                    handle = frame.frame_element()
+                    if handle:
+                        return handle, frame, f"page.frames(url={url[:80]}...)"
+                except Exception:
+                    continue
+        time.sleep(0.3)
     return None, None, None
 
 
@@ -278,16 +283,28 @@ def main():
         time.sleep(2)
 
         use_humanlike = args.humanlike or args.force_click
-        if auth._is_cloudflare_challenge():
-            logger.warning("Cloudflare challenge detected on initial load")
+
+        def handle_cf_if_present(label: str) -> None:
+            if not auth._is_cloudflare_challenge():
+                logger.info(f"[{label}] no CF challenge")
+                return
+            logger.warning(f"[{label}] Cloudflare challenge detected")
             if use_humanlike:
                 ok = watch_cf_with_humanlike(page, auth, force_click=args.force_click)
-                logger.info(f"watch_cf_with_humanlike() returned: {ok}")
+                logger.info(f"[{label}] watch_cf_with_humanlike() -> {ok}")
             else:
                 resolved = auth._wait_for_cloudflare_resolution()
-                logger.info(f"_wait_for_cloudflare_resolution() returned: {resolved}")
-        else:
-            logger.info("No Cloudflare challenge on initial load")
+                logger.info(f"[{label}] _wait_for_cloudflare_resolution() -> {resolved}")
+
+        handle_cf_if_present("initial")
+
+        # Production navigates to /my-telus right after the landing page —
+        # CF often appears here even when the landing was clean. Mirror that.
+        logger.info("Navigating to https://www.telus.com/my-telus (matches production flow)")
+        wrapper.goto("https://www.telus.com/my-telus", wait_until="domcontentloaded")
+        wrapper.wait_for_page_load()
+        time.sleep(2)
+        handle_cf_if_present("my-telus")
 
         if creds and not auth._is_cloudflare_challenge():
             logger.info("Proceeding to full login flow")
