@@ -386,6 +386,7 @@ class BellMonthlyReportsScraperStrategy(MonthlyReportsScraperStrategy):
                 my_reports_selectors = [
                     "#ec-sidebar > div > div > div.ec-sidebar__container > ul:nth-child(1) > li:nth-child(3) > button",
                     "#ec-sidebar > div > div > div.ec-sidebar__container > ul:nth-child(1) > li:nth-child(2) > button",
+                    "#ec-sidebar > div > div > div.ec-sidebar__container > ul:nth-child(1) > li:nth-child(4) > button",
                 ]
 
                 my_reports_button_clicked = False
@@ -416,6 +417,7 @@ class BellMonthlyReportsScraperStrategy(MonthlyReportsScraperStrategy):
                 service_sub_selectors = [
                     "nav:nth-child(4) > div:nth-child(2) > div:nth-child(1) > div:nth-child(3) > ul:nth-child(1) > li:nth-child(3) > ul:nth-child(2) > li:nth-child(1) > a:nth-child(1) > span:nth-child(1)",
                     "nav:nth-child(4) > div:nth-child(2) > div:nth-child(1) > div:nth-child(3) > ul:nth-child(1) > li:nth-child(2) > ul:nth-child(2) > li:nth-child(1) > a:nth-child(1) > span:nth-child(1)",
+                    "nav:nth-child(4) > div:nth-child(2) > div:nth-child(1) > div:nth-child(3) > ul:nth-child(1) > li:nth-child(4) > ul:nth-child(2) > li:nth-child(1) > a:nth-child(1) > span:nth-child(1)",
                 ]
 
                 service_sub_clicked = False
