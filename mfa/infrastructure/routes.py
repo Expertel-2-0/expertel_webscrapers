@@ -94,10 +94,11 @@ async def code_extractor(
 @router.get("/att")
 async def get_att_code(email_alias: str = Query(...)):
     email_alias = "notifications@expertel.com"
-    # AT&T has been migrating senders; accept both legacy and new domains.
+    # AT&T has been migrating senders; accept legacy and new domains.
     carrier_from_emails = [
         "premier@premier.wireless.att-mail.com",
         "noreply@e.online.att-mail.com",
+        "noreply@cbus.att-mail.com",
     ]
     return EventSourceResponse(code_extractor("att", email_alias, carrier_from_emails))
 
