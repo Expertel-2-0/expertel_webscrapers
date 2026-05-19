@@ -371,35 +371,51 @@ class TelusAuthStrategy(AuthBaseStrategy):
                     self.logger.error("Cloudflare challenge did not resolve on login page")
                     return False
 
-            email_field_xpath = '//*[@id="idtoken1"]'
-            email_field_fallback = '/html/body/div[1]/div/div[1]/div/div/div[1]/form/div[1]/div[1]/div[3]/input'
+            # Selector lists ordered most-stable-first. data-testid attributes are
+            # the most resilient anchor (Telus keeps them across redesigns); ids
+            # come next; aria-label / structural xpath are last-resort fallbacks.
+            email_selectors = [
+                ('[data-testid="login-form-email-input"]', "css"),
+                ("#idtoken1", "css"),
+                ('input[aria-label="Email or username"]', "css"),
+                ('//*[@id="login-form"]//input[@type="text"]', "xpath"),
+            ]
+            password_selectors = [
+                ('[data-testid="login-form-password-input"]', "css"),
+                ("#idtoken2", "css"),
+                ('input[aria-label="Password"]', "css"),
+                ('//*[@id="login-form"]//input[@type="password"]', "xpath"),
+            ]
+            login_button_selectors = [
+                ('[data-testid="login-form-submit-button"]', "css"),
+                ("#login-btn", "css"),
+                ('//*[@id="login-form"]//*[@role="button"]', "xpath"),
+            ]
+
             self.logger.info(f"Entering email: {credentials.username}")
-            if self.browser_wrapper.is_element_visible(email_field_xpath, timeout=3000):
-                self.browser_wrapper.clear_and_type(email_field_xpath, credentials.username)
-            elif self.browser_wrapper.is_element_visible(email_field_fallback, timeout=3000):
-                self.logger.info("Using fallback XPath for email field")
-                self.browser_wrapper.clear_and_type(email_field_fallback, credentials.username)
-            else:
-                self.logger.error("Email field not found with any selector")
-                return False
+            email_field = self._find_first_visible(email_selectors, total_timeout_ms=20000)
+            if email_field is None:
+                # Raise so SessionManager.login()'s except path persists the detail
+                # in session_state.error_message — without it, the scraper_job log
+                # only sees the generic "Login failed for Carrier.TELUS".
+                raise RuntimeError(self._build_login_diagnostics("email field"))
+            self.logger.info(f"Email field located via {email_field[1]}={email_field[0]}")
+            self.browser_wrapper.clear_and_type(email_field[0], credentials.username, selector_type=email_field[1])
             time.sleep(1)
 
-            password_field_xpath = '//*[@id="idtoken2"]'
-            password_field_fallback = '/html/body/div[1]/div/div[1]/div/div/div[1]/form/div[2]/div[3]/input'
             self.logger.info("Entering password...")
-            if self.browser_wrapper.is_element_visible(password_field_xpath, timeout=3000):
-                self.browser_wrapper.clear_and_type(password_field_xpath, credentials.password)
-            elif self.browser_wrapper.is_element_visible(password_field_fallback, timeout=3000):
-                self.logger.info("Using fallback XPath for password field")
-                self.browser_wrapper.clear_and_type(password_field_fallback, credentials.password)
-            else:
-                self.logger.error("Password field not found with any selector")
-                return False
+            password_field = self._find_first_visible(password_selectors, total_timeout_ms=10000)
+            if password_field is None:
+                raise RuntimeError(self._build_login_diagnostics("password field"))
+            self.logger.info(f"Password field located via {password_field[1]}={password_field[0]}")
+            self.browser_wrapper.clear_and_type(password_field[0], credentials.password, selector_type=password_field[1])
             time.sleep(1)
 
-            login_button_xpath = '//*[@id="login-btn"]'
             self.logger.info("Clicking Login...")
-            self.browser_wrapper.click_element(login_button_xpath)
+            login_button = self._find_first_visible(login_button_selectors, total_timeout_ms=5000)
+            if login_button is None:
+                raise RuntimeError(self._build_login_diagnostics("login submit button"))
+            self.browser_wrapper.click_element(login_button[0], selector_type=login_button[1])
             time.sleep(5)
 
             if self.is_logged_in():
@@ -412,6 +428,44 @@ class TelusAuthStrategy(AuthBaseStrategy):
         except Exception as e:
             self.logger.error(f"Error during login in Telus: {str(e)}")
             return False
+
+    def _find_first_visible(
+        self, selectors: list, total_timeout_ms: int = 15000
+    ):
+        # Iterate selectors in priority order; returns the first (selector, selector_type)
+        # that becomes visible within total_timeout_ms. Each individual probe is short so a
+        # late-rendered field is still picked up on a subsequent pass. Returns None on timeout.
+        deadline = time.time() + (total_timeout_ms / 1000.0)
+        per_probe_ms = 500
+        while time.time() < deadline:
+            for selector, selector_type in selectors:
+                if self.browser_wrapper.is_element_visible(
+                    selector, timeout=per_probe_ms, selector_type=selector_type
+                ):
+                    return (selector, selector_type)
+            time.sleep(0.3)
+        return None
+
+    def _build_login_diagnostics(self, missing_field: str) -> str:
+        # Build the detailed failure message AND log it. The returned string is
+        # raised by the caller so SessionManager / main.py persist it in the
+        # scraper_job log — otherwise the only signal upstream is the generic
+        # "Login failed for Carrier.TELUS", which is what the user flagged as
+        # too terse.
+        try:
+            current_url = self.browser_wrapper.get_current_url()
+        except Exception as e:
+            current_url = f"<error reading url: {e}>"
+        try:
+            page_title = self.browser_wrapper.page.title()
+        except Exception as e:
+            page_title = f"<error reading title: {e}>"
+        msg = (
+            f"Telus login: {missing_field} not found with any selector. "
+            f"Current URL: {current_url}. Page title: {page_title!r}"
+        )
+        self.logger.error(msg)
+        return msg
 
     def logout(self) -> bool:
         try:

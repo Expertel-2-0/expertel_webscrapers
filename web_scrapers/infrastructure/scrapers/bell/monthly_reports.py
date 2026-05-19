@@ -563,6 +563,16 @@ class BellMonthlyReportsScraperStrategy(MonthlyReportsScraperStrategy):
                 self.browser_wrapper.wait_for_page_load()
 
             except Exception as e:
+                # Persist a single-line, descriptive warning per failed report so
+                # the scraper_job log carries the reason (e.g. "Invoice month not
+                # available" or "workbook did not render"), not just the file
+                # logger noise. main.py:_flush_scraper_warnings drains
+                # self.job_warnings into the job's stored log after execute().
+                raw_msg = str(e).strip().splitlines()[0] if str(e).strip() else type(e).__name__
+                self._record_job_warning(
+                    f"Bell monthly report '{report_config['name']}' (slug={report_config['slug']}) "
+                    f"failed: {raw_msg}"
+                )
                 self.logger.error(f"Error processing report '{report_config['name']}': {str(e)}")
                 continue
 
@@ -987,8 +997,17 @@ class BellMonthlyReportsScraperStrategy(MonthlyReportsScraperStrategy):
             month_option_xpath = f"{invoice_month_section_xpath}//li[contains(@class, 'list-item')][.//span[contains(@class, 'singleselect-dropdown-item') and contains(., '{month_text}')]]"
             month_locator = self.browser_wrapper.page.locator(f"xpath={month_option_xpath}")
 
-            # Wait for the filtered result to appear
-            month_locator.wait_for(state="attached", timeout=10000)
+            # Wait for the filtered result to appear. If the timeout fires, the
+            # month simply isn't in the dropdown — re-raise with that specific
+            # cause so upstream logs say "month not available" instead of a raw
+            # playwright timeout that hides the real reason.
+            try:
+                month_locator.wait_for(state="attached", timeout=10000)
+            except Exception:
+                raise RuntimeError(
+                    f"Invoice month '{month_text}' not available in Bell dropdown — "
+                    f"report likely not yet published for this billing cycle"
+                )
             self.logger.info(f"Month '{month_text}' found in filtered results")
 
             # Click the month
