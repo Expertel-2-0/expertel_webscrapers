@@ -15,6 +15,10 @@ DOWNLOADS_DIR = os.path.abspath("downloads")
 os.makedirs(DOWNLOADS_DIR, exist_ok=True)
 
 
+class AccountFilterError(Exception):
+    """Raised when the AT&T account filter cannot be applied — must abort the run to avoid downloading the wrong account's data."""
+
+
 class ATTDailyUsageScraperStrategy(DailyUsageScraperStrategy):
     """Scraper de uso diario para AT&T."""
 
@@ -198,6 +202,13 @@ class ATTDailyUsageScraperStrategy(DailyUsageScraperStrategy):
             self.logger.info(f"Daily usage download completed: {len(downloaded_files)} file(s)")
             return downloaded_files
 
+        except AccountFilterError as e:
+            self.logger.error(f"Aborting daily usage download: {e}")
+            try:
+                self._reset_to_main_screen()
+            except:
+                pass
+            raise
         except Exception as e:
             self.logger.error(f"Error downloading daily usage files: {str(e)}\n{traceback.format_exc()}")
             try:
@@ -207,13 +218,17 @@ class ATTDailyUsageScraperStrategy(DailyUsageScraperStrategy):
             return downloaded_files
 
     def _configure_account_filter(self, billing_cycle: BillingCycle):
-        """Configura el filtro de cuenta basado en el billing cycle."""
-        try:
-            account_number = billing_cycle.account.number
-            self.logger.info(f"Configuring account filter for: {account_number}")
+        """Configura el filtro de cuenta basado en el billing cycle.
 
+        Si el filtro no puede aplicarse correctamente lanza AccountFilterError
+        para abortar la descarga y evitar exportar datos de otra cuenta.
+        """
+        account_number = billing_cycle.account.number
+        self.logger.info(f"Configuring account filter for: {account_number}")
+
+        try:
             # 1. Click en View by dropdown
-            view_by_xpath = "//*[@id='main-content']/div[1]/div[2]/div[2]/div[1]/div[1]"
+            view_by_xpath = '//*[@id="LevelDataDropdownButton"]'
             self.logger.info("Clicking View by dropdown...")
             self.browser_wrapper.click_element(view_by_xpath)
             time.sleep(2)
@@ -232,16 +247,18 @@ class ATTDailyUsageScraperStrategy(DailyUsageScraperStrategy):
 
             # 4. Seleccionar la primera opción del listado
             first_option_xpath = "//*[@id='scopeExpandedAccountMenu']/div[3]/ul/li[1]"
-            if self.browser_wrapper.is_element_visible(first_option_xpath, timeout=5000):
-                self.logger.info("Selecting first account option...")
-                checkbox_xpath = f"{first_option_xpath}/input"
-                if self.browser_wrapper.is_element_visible(checkbox_xpath, timeout=2000):
-                    self.browser_wrapper.click_element(checkbox_xpath)
-                else:
-                    self.browser_wrapper.click_element(first_option_xpath)
-                time.sleep(1)
+            if not self.browser_wrapper.is_element_visible(first_option_xpath, timeout=5000):
+                raise AccountFilterError(
+                    f"Account {account_number} did not appear in the filter list — aborting to avoid exporting another account's data"
+                )
+
+            self.logger.info("Selecting first account option...")
+            checkbox_xpath = f"{first_option_xpath}/input"
+            if self.browser_wrapper.is_element_visible(checkbox_xpath, timeout=2000):
+                self.browser_wrapper.click_element(checkbox_xpath)
             else:
-                self.logger.warning("Account option not found in list")
+                self.browser_wrapper.click_element(first_option_xpath)
+            time.sleep(1)
 
             # 5. Click en OK button
             ok_button_xpath = "//*[@id='scopeExpandedAccountMenu']/div[4]/button"
@@ -251,8 +268,13 @@ class ATTDailyUsageScraperStrategy(DailyUsageScraperStrategy):
 
             self.logger.info("Account filter configured successfully")
 
+        except AccountFilterError:
+            raise
         except Exception as e:
             self.logger.error(f"Error configuring account filter: {str(e)}\n{traceback.format_exc()}")
+            raise AccountFilterError(
+                f"Failed to apply account filter for {account_number}: {e}"
+            ) from e
 
     def _find_and_click_report(self, section_name: str, report_names: List[str]) -> bool:
         """Busca y hace click en un reporte dentro del accordion.
