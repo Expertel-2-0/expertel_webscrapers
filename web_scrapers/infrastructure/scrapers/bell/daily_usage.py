@@ -185,22 +185,30 @@ class BellDailyUsageScraperStrategy(DailyUsageScraperStrategy):
             self.pool_used = 0
 
     def _configure_data_share_dropdown(self):
-        """Configura el dropdown con logica de fallback entre Medium y Corp Business Data Share."""
+        """Configura el dropdown probando opciones de Data Share en orden de preferencia."""
         dropdown_xpath = "/html[1]/body[1]/div[1]/main[1]/div[1]/div[2]/account-details[1]/div[1]/div[2]/account-shared-data[1]/div[2]/category-usage-details[1]/div[1]/div[2]/div[4]/div[1]/subscriber-usage-details[1]/div[1]/div[2]/filter-selection[1]/div[1]/select[1]"
 
-        try:
-            # Intentar primero con "Medium Business Data Share"
-            self.logger.info("Trying to select 'Medium Business Data Share'...")
-            self.browser_wrapper.select_dropdown_option(dropdown_xpath, "Medium Business Data Share")
-            self.logger.info("'Medium Business Data Share' selected")
-        except Exception as e:
-            self.logger.warning("'Medium Business Data Share' not available, trying 'Corp Business Data Share'...")
+        data_share_options = [
+            "All usage",
+            "Medium Business Data Share",
+            "Corp Business Data Share",
+            "Corporate Share NA Data Group",
+            "Medium Business Unlimited Data Share"
+        ]
+
+        last_error: Exception | None = None
+        for option in data_share_options:
             try:
-                self.browser_wrapper.select_dropdown_option(dropdown_xpath, "Corp Business Data Share")
-                self.logger.info("'Corp Business Data Share' selected")
-            except Exception as e2:
-                self.logger.error(f"Error configuring dropdown: {str(e2)}")
-                raise e2
+                self.logger.info(f"Trying to select '{option}'...")
+                self.browser_wrapper.select_dropdown_option(dropdown_xpath, option)
+                self.logger.info(f"'{option}' selected")
+                break
+            except Exception as e:
+                self.logger.warning(f"'{option}' not available")
+                last_error = e
+        else:
+            self.logger.error(f"Error configuring dropdown: {str(last_error)}")
+            raise last_error  # type: ignore[misc]
 
         self.browser_wrapper.wait_for_page_load()
 
