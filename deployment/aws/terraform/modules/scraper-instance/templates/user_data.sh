@@ -6,7 +6,7 @@
 # - XFCE desktop environment
 # - noVNC for remote browser access
 # - Python 3.11 + Poetry + Playwright
-# - Systemd timers for scheduled execution (every 30 min with flock mutex)
+# - Systemd timers for scheduled execution (interval defined by scraper_timer_calendar var, flock mutex)
 # =============================================================================
 
 set -e
@@ -534,14 +534,14 @@ StandardError=append:/var/log/scraper/scraper.log
 ExecStopPost=/bin/bash -c 'if [ "\$EXIT_STATUS" != "0" ] && [ "\$EXIT_STATUS" != "1" ]; then aws sns publish --topic-arn "$SNS_TOPIC_ARN" --message "Scraper failed with exit code \$EXIT_STATUS" --subject "Scraper Error - $ENVIRONMENT" --region $AWS_REGION; fi'
 EOF
 
-# Scraper Timer (every 30 minutes)
+# Scraper Timer (interval set by scraper_timer_calendar terraform var)
 cat > /etc/systemd/system/scraper.timer << EOF
 [Unit]
-Description=Run scraper every 30 minutes (with flock mutex to prevent overlapping)
+Description=Run scraper on scraper_timer_calendar schedule (with flock mutex to prevent overlapping)
 
 [Timer]
-# Run every 30 minutes (at :00 and :30 of each hour)
-OnCalendar=*:00,30
+# OnCalendar value comes from terraform var scraper_timer_calendar
+OnCalendar=${scraper_timer_calendar}
 # Randomize start by up to 60 seconds to avoid thundering herd
 RandomizedDelaySec=60
 Persistent=true
@@ -680,7 +680,7 @@ echo "Password: (stored in SSM)"
 echo ""
 echo "Services:"
 echo "  - MFA Service: Running on port 7000 (internal only)"
-echo "  - Scraper: Runs every 30 minutes (with flock mutex)"
+echo "  - Scraper: Runs on OnCalendar=${scraper_timer_calendar} (with flock mutex)"
 echo ""
 echo "Commands:"
 echo "  systemctl status mfa           - Check MFA service"

@@ -222,14 +222,15 @@ resource "aws_instance" "scraper" {
   }
 
   user_data_base64 = base64gzip(templatefile("${path.module}/templates/user_data.sh", {
-    environment         = var.environment
-    app_name            = var.app_name
-    aws_region          = var.aws_region
-    github_repo_url     = var.github_repo_url
-    github_branch       = var.github_branch
-    sns_topic_arn       = var.sns_topic_arn
-    screen_resolution   = var.screen_resolution
-    timezone            = var.timezone
+    environment            = var.environment
+    app_name               = var.app_name
+    aws_region             = var.aws_region
+    github_repo_url        = var.github_repo_url
+    github_branch          = var.github_branch
+    sns_topic_arn          = var.sns_topic_arn
+    screen_resolution      = var.screen_resolution
+    timezone               = var.timezone
+    scraper_timer_calendar = var.scraper_timer_calendar
   }))
 
   tags = merge(var.tags, {

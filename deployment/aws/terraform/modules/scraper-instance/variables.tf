@@ -107,6 +107,12 @@ variable "timezone" {
   default     = "America/New_York"
 }
 
+variable "scraper_timer_calendar" {
+  description = "systemd OnCalendar expression for the scraper timer (e.g. '*:0/10' for every 10 min, '*:00,30' for every 30 min)"
+  type        = string
+  default     = "*:0/10"
+}
+
 variable "log_retention_days" {
   description = "CloudWatch log retention in days"
   type        = number

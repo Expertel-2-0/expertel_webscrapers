@@ -23,6 +23,7 @@ class BellEnterpriseAuthStrategy(AuthBaseStrategy):
     def __init__(self, browser_wrapper: BrowserWrapper, webhook_url: str = None):
         super().__init__(browser_wrapper)
         self.webhook_url = webhook_url or DEFAULT_MFA_SERVICE_URL
+        self.logger = logging.getLogger(self.__class__.__name__)
 
     def login(self, credentials: Credentials) -> bool:
         try:
@@ -31,11 +32,15 @@ class BellEnterpriseAuthStrategy(AuthBaseStrategy):
             time.sleep(3)
 
             username_xpath = "//*[@id='Username']"
-            self.browser_wrapper.type_text(username_xpath, credentials.username)
+            if not self._type_and_verify(username_xpath, credentials.username, field_name="username"):
+                self.logger.error("Aborting Bell Enterprise login: username could not be typed completely")
+                return False
             time.sleep(1)
 
             password_xpath = "//*[@id='Password']"
-            self.browser_wrapper.type_text(password_xpath, credentials.password)
+            if not self._type_and_verify(password_xpath, credentials.password, field_name="password"):
+                self.logger.error("Aborting Bell Enterprise login: password could not be typed completely")
+                return False
             time.sleep(1)
 
             login_button_xpath = "//*[@id='loginBtn']"
@@ -47,8 +52,52 @@ class BellEnterpriseAuthStrategy(AuthBaseStrategy):
             return self.is_logged_in()
 
         except Exception as e:
-            print(f"Error during Enterprise Centre login: {str(e)}")
+            self.logger.error(f"Error during Enterprise Centre login: {str(e)}")
             return False
+
+    def _type_and_verify(
+        self,
+        selector: str,
+        text: str,
+        field_name: str,
+        max_attempts: int = 3,
+        selector_type: str = "xpath",
+    ) -> bool:
+        # Bell Enterprise occasionally loses focus mid-typing (window focus stolen,
+        # popup, etc.) and the input keeps a partial value. The login still submits
+        # and Bell rejects the (now mismatched) credentials, which surfaces as a
+        # generic "Login failed". Here we type, read the input value back, and
+        # retry up to max_attempts if the length doesn't match. We only log
+        # lengths — never the value — so passwords don't leak into logs.
+        resolved = self.browser_wrapper._resolve_selector(selector, selector_type)
+        expected_len = len(text)
+        for attempt in range(1, max_attempts + 1):
+            try:
+                self.browser_wrapper.page.locator(resolved).fill("")
+            except Exception as e:
+                self.logger.warning(f"Could not clear {field_name} before attempt {attempt}: {e}")
+            self.browser_wrapper.type_text(selector, text, selector_type=selector_type)
+            try:
+                actual = self.browser_wrapper.page.input_value(resolved) or ""
+            except Exception as e:
+                self.logger.warning(f"Could not read {field_name} value on attempt {attempt}: {e}")
+                actual = ""
+            if len(actual) == expected_len:
+                if attempt > 1:
+                    self.logger.info(
+                        f"{field_name} typed correctly on attempt {attempt}/{max_attempts} (len={expected_len})"
+                    )
+                return True
+            self.logger.warning(
+                f"{field_name} typing incomplete on attempt {attempt}/{max_attempts}: "
+                f"expected len={expected_len}, got len={len(actual)} — retrying"
+            )
+            time.sleep(0.5)
+        self.logger.error(
+            f"{field_name} could not be typed completely after {max_attempts} attempts "
+            f"(expected len={expected_len})"
+        )
+        return False
 
     def logout(self) -> bool:
         try:
