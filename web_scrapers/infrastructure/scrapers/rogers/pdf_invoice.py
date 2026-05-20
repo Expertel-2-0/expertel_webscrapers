@@ -263,20 +263,42 @@ class RogersPDFInvoiceScraperStrategy(PDFInvoiceScraperStrategy):
             self.logger.error(f"Error clicking View Bill: {str(e)}")
             return False
 
+    def _find_frame_with_selector(self, xpath: str, timeout_ms: int = 60000):
+        """Busca el frame que contenga el selector dado dentro de cualquier iframe.
+
+        El viewer del bill (BriteBill) se renderiza en un iframe distinto al de la
+        pagina principal, por eso wait_for_selector sobre page falla. Iteramos los
+        frames hasta encontrar el que contiene el elemento o agotar el timeout.
+        """
+        page = self.browser_wrapper.page
+        deadline = time.time() + timeout_ms / 1000.0
+        while time.time() < deadline:
+            for frame in page.frames:
+                try:
+                    if frame.locator(f"xpath={xpath}").count() > 0:
+                        return frame
+                except Exception:
+                    continue
+            time.sleep(1)
+        return None
+
     def _download_complete_bill_pdf(self) -> Optional[str]:
         """Espera al boton 'Download Bill', lo abre y descarga 'Complete bill' del tooltip.
 
         La pagina del bill puede tardar hasta 1 min en renderizar el boton de descarga.
-        Al hacer click en #save_desktop aparece un tooltip (#tippy-1) con opciones;
-        'Complete bill' dispara la descarga inmediatamente.
+        El boton y el tooltip viven dentro de un iframe (BriteBill viewer), asi que
+        buscamos el frame correcto antes de operar sobre el.
         """
         try:
             download_bill_xpath = '//*[@id="save_desktop"]'
-            self.logger.info("Waiting up to 60s for 'Download Bill' button to appear...")
-            self.browser_wrapper.wait_for_element(download_bill_xpath, timeout=60000)
+            self.logger.info("Waiting up to 60s for 'Download Bill' button to appear inside iframe...")
+            frame = self._find_frame_with_selector(download_bill_xpath, timeout_ms=60000)
+            if frame is None:
+                self.logger.error("Could not locate iframe containing 'Download Bill' button")
+                return None
 
             self.logger.info("Clicking 'Download Bill' to open download options tooltip...")
-            self.browser_wrapper.click_element(download_bill_xpath)
+            frame.locator(f"xpath={download_bill_xpath}").click()
             time.sleep(2)
 
             complete_bill_xpath = (
@@ -284,17 +306,27 @@ class RogersPDFInvoiceScraperStrategy(PDFInvoiceScraperStrategy):
                 '//span[contains(@class, "downloadPdfEbuLink-rogers") '
                 'and normalize-space(text())="Complete bill"]'
             )
-
-            if not self.browser_wrapper.find_element_by_xpath(complete_bill_xpath, timeout=10000):
+            complete_bill = frame.locator(f"xpath={complete_bill_xpath}")
+            try:
+                complete_bill.wait_for(state="visible", timeout=10000)
+            except Exception:
                 self.logger.error("'Complete bill' option not found in tooltip")
                 return None
 
             self.logger.info("Clicking 'Complete bill' and capturing download...")
-            downloaded_file_path = self.browser_wrapper.expect_download_and_click(
-                complete_bill_xpath, timeout=60000, downloads_dir=self.job_downloads_dir
-            )
-            self.logger.debug(f"Downloaded file path: {downloaded_file_path}")
-            return downloaded_file_path
+            page = self.browser_wrapper.page
+            try:
+                with page.expect_download(timeout=60000) as download_info:
+                    complete_bill.click()
+                download = download_info.value
+                os.makedirs(self.job_downloads_dir, exist_ok=True)
+                file_path = os.path.join(self.job_downloads_dir, download.suggested_filename)
+                download.save_as(file_path)
+                self.logger.debug(f"Downloaded file path: {file_path}")
+                return file_path
+            except Exception as e:
+                self.logger.error(f"Error during download: {str(e)}")
+                return None
 
         except Exception as e:
             self.logger.error(f"Error downloading Complete bill PDF: {str(e)}")
