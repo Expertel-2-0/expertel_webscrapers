@@ -28,15 +28,22 @@ class BellPDFInvoiceScraperStrategy(PDFInvoiceScraperStrategy):
             # Navegar a la seccion de billing y download PDF
             self._navigate_to_pdf_section()
 
-            # Determine if account selection is needed (Version 1) or already preselected (Version 2)
-            search_input_xpath = "/html[1]/body[1]/div[1]/main[1]/div[1]/uxp-flow[1]/div[2]/account-selection[1]/div[2]/section[1]/div[1]/account-selection-global-search[1]/div[1]/div[2]/section[2]/div[1]/div[1]/account-search[1]/div[1]/div[1]/div[1]/input[1]"
-            account_selection_needed = self.browser_wrapper.find_element_by_xpath(search_input_xpath, timeout=10000)
-
-            if account_selection_needed:
-                self.logger.info("Version 1: Account selection required")
-                self._handle_pdf_account_selection(billing_cycle)
+            # Escenario "dataContainer": Bell muestra una tabla con el BAN visible y un boton
+            # "Select" por fila (mismo patron que bell/daily_usage.py Flow B). Si aparece,
+            # clic directo en la fila del BAN — no requiere search/Continue.
+            if self.browser_wrapper.find_element_by_xpath("//section[@id='dataContainer']", timeout=5000):
+                self.logger.info("dataContainer screen detected — selecting BAN directly")
+                self._handle_data_container_selection(billing_cycle)
             else:
-                self.logger.info("Version 2: Account already preselected, continuing direct")
+                # Determine if account selection is needed (Version 1) or already preselected (Version 2)
+                search_input_xpath = "/html[1]/body[1]/div[1]/main[1]/div[1]/uxp-flow[1]/div[2]/account-selection[1]/div[2]/section[1]/div[1]/account-selection-global-search[1]/div[1]/div[2]/section[2]/div[1]/div[1]/account-search[1]/div[1]/div[1]/div[1]/input[1]"
+                account_selection_needed = self.browser_wrapper.find_element_by_xpath(search_input_xpath, timeout=10000)
+
+                if account_selection_needed:
+                    self.logger.info("Version 1: Account selection required")
+                    self._handle_pdf_account_selection(billing_cycle)
+                else:
+                    self.logger.info("Version 2: Account already preselected, continuing direct")
 
             # Parte comun: Configurar opciones de descarga de PDF
             self._configure_pdf_download_options(billing_cycle)
@@ -46,6 +53,28 @@ class BellPDFInvoiceScraperStrategy(PDFInvoiceScraperStrategy):
         except Exception as e:
             self.logger.error(f"Error in _find_files_section: {str(e)}")
             return None
+
+    def _handle_data_container_selection(self, billing_cycle: BillingCycle):
+        """Marca el checkbox de la fila del BAN en #dataContainer y continua el flujo."""
+        account_number = billing_cycle.account.number
+        checkbox_xpath = (
+            f"//tr[.//td[@data-table-col='banId' and normalize-space(text())='{account_number}']]"
+            f"//td[@data-selection]//span[contains(@class,'input-checkbox-representation')]"
+        )
+
+        if not self.browser_wrapper.find_element_by_xpath(checkbox_xpath, timeout=10000):
+            raise Exception(f"BAN {account_number} checkbox not visible in dataContainer table")
+
+        self.logger.info(f"BAN {account_number} visible, marking checkbox")
+        self.browser_wrapper.click_element(checkbox_xpath)
+        time.sleep(2)
+
+        # continue (click) - mismo continue del flujo Version 1
+        continue_xpath = "/html[1]/body[1]/div[1]/main[1]/div[1]/uxp-flow[1]/div[2]/account-selection[1]/div[9]/selection-dock[1]/div[1]/div[1]/div[1]/div[4]/button[1]"
+        self.browser_wrapper.click_element(continue_xpath)
+        self.browser_wrapper.wait_for_page_load()
+        time.sleep(5)
+        self.logger.info("Account selected successfully (dataContainer)")
 
     def _navigate_to_pdf_section(self):
         """Navega a la seccion de descarga de PDF (parte inicial comun)."""
