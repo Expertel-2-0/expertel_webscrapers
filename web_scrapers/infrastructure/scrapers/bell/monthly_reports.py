@@ -489,22 +489,18 @@ class BellMonthlyReportsScraperStrategy(MonthlyReportsScraperStrategy):
             {
                 "name": "cost overview report",
                 "slug": BellFileSlug.COST_OVERVIEW.value,
-                "workbook_button": "//*[@id='ds-sec-expand']/div[2]/div/div[2]/div/div[12]/button",
             },
             {
                 "name": "usage overview report",
                 "slug": BellFileSlug.USAGE_OVERVIEW.value,
-                "workbook_button": "//*[@id='ds-sec-expand']/div[2]/div/div[2]/div/div[12]/button",
             },
             {
                 "name": "enhanced user profile report",
                 "slug": BellFileSlug.ENHANCED_USER_PROFILE.value,
-                "workbook_button": "//*[@id='ds-sec-expand']/div[2]/div/div[2]/div/div[12]/button",
             },
             {
                 "name": "invoice charge report",
                 "slug": BellFileSlug.INVOICE_CHARGE_REPORT.value,
-                "workbook_button": "//*[@id='ds-sec-expand']/div[2]/div/div[2]/div/div[12]/button",
             },
         ]
 
@@ -531,17 +527,12 @@ class BellMonthlyReportsScraperStrategy(MonthlyReportsScraperStrategy):
             try:
                 self.logger.info(f"Processing report: {report_config['name']}")
 
-                # Step 1: Click on the report grid by searching for it dynamically
+                # Step 1: Double-click on the report card to open the workbook directly
                 self._click_report_by_name(report_config["name"])
                 self.browser_wrapper.wait_for_page_load()
-                self.logger.info(f"Report grid clicked for {report_config['name']}")
+                self.logger.info(f"Workbook opened for {report_config['name']} via card double-click")
 
-                # Step 2: Click on the workbook button
-                self.browser_wrapper.click_element(report_config["workbook_button"])
-                self.browser_wrapper.wait_for_page_load()
-                self.logger.info(f"Workbook opened for {report_config['name']}")
-
-                # Step 3: Wait 30 seconds for workbook to load
+                # Step 2: Wait 30 seconds for workbook to load
                 self.logger.info("Waiting 30 seconds for workbook interface to load...")
                 time.sleep(30)
 
@@ -625,10 +616,10 @@ class BellMonthlyReportsScraperStrategy(MonthlyReportsScraperStrategy):
             # Wait for the specific report to appear
             self.browser_wrapper.wait_for_element(report_xpath, timeout=10000)
 
-            self.logger.info(f"Report '{report_name}' found, clicking it...")
-            self.browser_wrapper.click_element(report_xpath)
+            self.logger.info(f"Report '{report_name}' found, double-clicking it...")
+            self.browser_wrapper.double_click_element(report_xpath)
 
-            self.logger.info(f"Report '{report_name}' found and clicked successfully")
+            self.logger.info(f"Report '{report_name}' found and double-clicked successfully")
 
         except Exception as e:
             self.logger.error(f"Error clicking report '{report_name}': {str(e)}")
@@ -645,9 +636,9 @@ class BellMonthlyReportsScraperStrategy(MonthlyReportsScraperStrategy):
                 )
 
                 self.browser_wrapper.wait_for_element(alt_report_xpath, timeout=10000)
-                self.browser_wrapper.click_element(alt_report_xpath)
+                self.browser_wrapper.double_click_element(alt_report_xpath)
 
-                self.logger.info(f"Report '{report_name}' found via alternative method and clicked successfully")
+                self.logger.info(f"Report '{report_name}' found via alternative method and double-clicked successfully")
 
             except Exception as e2:
                 self.logger.error(f"Alternative search also failed: {str(e2)}")
