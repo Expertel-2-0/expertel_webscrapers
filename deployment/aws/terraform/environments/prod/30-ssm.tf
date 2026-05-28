@@ -79,7 +79,7 @@ resource "aws_ssm_parameter" "mfa_service_url" {
   name        = "/${var.app_name}/${var.environment}/mfa-service/url"
   description = "MFA service URL"
   type        = "String"
-  value       = "http://localhost:7000"  # Update with actual MFA service URL
+  value       = "http://localhost:7000" # Update with actual MFA service URL
 
   tags = local.common_tags
 }
@@ -146,9 +146,9 @@ resource "aws_ssm_parameter" "frontend_url" {
   name        = "/${var.app_name}/${var.environment}/config/frontend-url"
   description = "Frontend URL for building links in emails"
   type        = "String"
-  # Day-1 prod: HTTP via Cloudflare DNS-only CNAME (no TLS yet).
-  # Switch to https://eiq.expertel.com once Cloudflare is proxied + Full strict.
-  value       = "http://eiq.expertel.com"
+  # Cloudflare Proxied + Full strict + ACM wildcard cert on the frontend ALB
+  # (see experteliq backend repo: deployment/aws/terraform/environments/prod/acm.tf).
+  value = "https://eiq.expertel.com"
 
   tags = local.common_tags
 }
