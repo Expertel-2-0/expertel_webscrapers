@@ -71,55 +71,60 @@ class TelusDailyUsageScraperStrategy(DailyUsageScraperStrategy):
             else:
                 self.logger.warning("Could not extract pool data, continuing without pool data...")
 
-            # 6. Navigate to Overview tab
-            overview_tab_xpath = '//*[@id="navOpen"]/li[1]/a'
-            self.logger.info("Clicking on Overview tab...")
-            self.browser_wrapper.click_element(overview_tab_xpath)
+            # 6. Return to my-telus home where the "Go to TELUS IQ" card lives. The new
+            #    Usage page (where we just extracted pool data) is a standalone view that
+            #    no longer renders the side nav, so we can't click the Overview tab from
+            #    here. Going to the my-telus root URL matches the auth strategy's
+            #    post-login navigation, so it's not a suspicious deep-link.
+            self.logger.info("Returning to my-telus home...")
+            self.browser_wrapper.goto("https://www.telus.com/my-telus")
             self.browser_wrapper.wait_for_page_load()
             time.sleep(5)
 
-            # 7. Click on "Go to Telus IQ"
-            telus_iq_button_xpath = (
-                "/html/body/div[5]/div/div/div/div[1]/div/div[3]/div/div/div/div/div/div[3]/div/div/a"
-            )
-            self.logger.info("Clicking on 'Go to Telus IQ' button...")
+            # 7. Click on "Go to TELUS IQ" (new IQ on mobilitymanager.telus.com, the only
+            #    interface that exports the daily-usage CSV). This triggers an OAuth handshake
+            #    that may show a login page, handled right after.
+            telus_iq_button_xpath = '//a[@data-testid="generic-card-primary-cta" and contains(@href, "/iq/manage")]'
+            self.logger.info("Clicking on 'Go to TELUS IQ' button...")
             self.browser_wrapper.click_element(telus_iq_button_xpath)
-            self.logger.info("Waiting 30 seconds for Telus IQ to load...")
+            self.logger.info("Waiting 30 seconds for TELUS IQ to load...")
             time.sleep(30)
+
+            # 7b. TELUS IQ runs its own OAuth handshake and may surface a login page.
+            #     Re-authenticate if the form is present (no-op when SSO is silent).
+            self._handle_iq_login_if_present()
+
+            # 7c. Close any TELUS IQ confirmation modal that may pop up on entry.
+            self._dismiss_iq_modals()
+
+            # 7d. Confirm IQ home is loaded and select the target account in the BAN dropdown.
+            if not self._select_iq_ban(billing_cycle):
+                self.logger.error("Could not select BAN in TELUS IQ — logging out of IQ before aborting")
+                # We're already inside IQ; close that session so the next run starts clean.
+                # The my-telus logout runs afterwards via TelusAuthStrategy.logout() in cleanup.
+                try:
+                    self._logout_iq()
+                except Exception:
+                    pass
+                return None
 
             # 8. Handle Bill Analyzer modal if it appears
             self._dismiss_bill_analyzer_modal()
 
-            # 9. Click on Manage tab
-            manage_tab_xpath = '//*[@id="site-header__root"]/div[1]/div/div/div/div/ul[1]/li[2]/a'
-            self.logger.info("Clicking on Manage tab...")
-            self.browser_wrapper.click_element(manage_tab_xpath)
-            time.sleep(3)
-
-            # 10. Click on Usage View option
-            usage_view_xpath = '//*[@id="site-header__root"]/div[2]/div/div/div/div/div[2]/div[1]/div[3]/div/a'
-            self.logger.info("Verifying 'Usage view' option...")
-
-            # Validate it actually says "Usage view"
-            if self.browser_wrapper.find_element_by_xpath(usage_view_xpath, timeout=5000):
-                link_text = self.browser_wrapper.get_text(usage_view_xpath)
-                if "Usage view" in link_text:
-                    self.logger.info("Clicking on 'Usage view' option...")
-                    self.browser_wrapper.click_element(usage_view_xpath)
-                else:
-                    self.logger.warning(f"Unexpected text in link: '{link_text}', attempting click anyway...")
-                    self.browser_wrapper.click_element(usage_view_xpath)
-            else:
-                self.logger.error("'Usage view' option not found")
+            # 9. Click "View heavy data user details" on the IQ home. This shortcut
+            #    lands on the same Usage view screen as Manage tab > Usage view, but
+            #    with the BAN filter already applied — replacing both that two-step
+            #    navigation and the previous _configure_advanced_search call that
+            #    only re-set the BAN filter.
+            view_heavy_xpath = '//a[.//span[normalize-space()="View heavy data user details"]]'
+            self.logger.info("Clicking on 'View heavy data user details' link...")
+            if not self.browser_wrapper.is_element_visible(view_heavy_xpath, timeout=10000, selector_type="xpath"):
+                self.logger.error("'View heavy data user details' link not visible on IQ home")
                 return None
+            self.browser_wrapper.click_element(view_heavy_xpath, selector_type="xpath")
 
-            self.logger.info("Waiting 15 seconds for Usage View to load...")
+            self.logger.info("Waiting 15 seconds for Usage view (BAN-filtered) to load...")
             time.sleep(15)
-
-            # 11. Configure advanced search with BAN
-            if not self._configure_advanced_search(billing_cycle):
-                self.logger.error("Advanced search configuration failed")
-                return None
 
             self.logger.info("Navigation to daily usage section completed")
             return {
@@ -132,6 +137,185 @@ class TelusDailyUsageScraperStrategy(DailyUsageScraperStrategy):
         except Exception as e:
             self.logger.error(f"Error navigating to daily usage section: {str(e)}")
             return None
+
+    def _handle_iq_login_if_present(self) -> None:
+        """Fills the TELUS IQ login form if the OAuth handshake surfaced one.
+
+        TELUS IQ (mobilitymanager.telus.com) is a separate OAuth client with its own
+        session. When that session isn't established, the handshake lands on the same
+        TELUS SSO login form used by TelusAuthStrategy. We reuse those selectors here.
+        No-op when SSO is silent (no form visible).
+        """
+        # Same selectors as TelusAuthStrategy.login(), most-stable-first.
+        email_selectors = [
+            ('[data-testid="login-form-email-input"]', "css"),
+            ("#idtoken1", "css"),
+            ('input[aria-label="Email or username"]', "css"),
+        ]
+        password_selectors = [
+            ('[data-testid="login-form-password-input"]', "css"),
+            ("#idtoken2", "css"),
+            ('input[aria-label="Password"]', "css"),
+        ]
+        login_button_selectors = [
+            ('[data-testid="login-form-submit-button"]', "css"),
+            ("#login-btn", "css"),
+        ]
+
+        email_field = self._first_visible(email_selectors, timeout=3000)
+        if email_field is None:
+            self.logger.info("No TELUS IQ login form detected (silent SSO), continuing...")
+            return
+
+        creds = getattr(self, "credentials", None)
+        if creds is None:
+            self.logger.error("TELUS IQ login form present but no credentials available to fill it")
+            return
+
+        self.logger.info("TELUS IQ login form detected, re-authenticating...")
+        self.browser_wrapper.clear_and_type(email_field[0], creds.username, selector_type=email_field[1])
+        time.sleep(1)
+
+        password_field = self._first_visible(password_selectors, timeout=5000)
+        if password_field is None:
+            self.logger.error("TELUS IQ login: password field not found")
+            return
+        self.browser_wrapper.clear_and_type(password_field[0], creds.password, selector_type=password_field[1])
+        time.sleep(1)
+
+        login_button = self._first_visible(login_button_selectors, timeout=5000)
+        if login_button is None:
+            self.logger.error("TELUS IQ login: submit button not found")
+            return
+        self.logger.info("Submitting TELUS IQ login...")
+        self.browser_wrapper.click_element(login_button[0], selector_type=login_button[1])
+        self.browser_wrapper.wait_for_page_load()
+        self.logger.info("Waiting 20 seconds for TELUS IQ to load after login...")
+        time.sleep(20)
+
+    def _first_visible(self, selectors: list, timeout: int = 3000):
+        """Returns the first (selector, selector_type) that is visible, or None."""
+        for selector, selector_type in selectors:
+            if self.browser_wrapper.is_element_visible(selector, timeout=timeout, selector_type=selector_type):
+                return (selector, selector_type)
+        return None
+
+    def _select_iq_ban(self, billing_cycle: BillingCycle) -> bool:
+        """Selects the target account in the TELUS IQ 'Select a BAN' dropdown.
+
+        Doubles as a 'logged into IQ' check: the dropdown only renders on the IQ
+        home page after auth completed. After selecting, reads back the select's
+        value to confirm the change took effect.
+        """
+        target_ban = str(billing_cycle.account.number)
+        ban_select_xpath = '//select[@id="select-a-ban"]'
+
+        self.logger.info(f"Waiting for IQ home page (BAN dropdown) for account {target_ban}...")
+        if not self.browser_wrapper.is_element_visible(ban_select_xpath, timeout=30000, selector_type="xpath"):
+            self.logger.error("TELUS IQ BAN dropdown not visible — IQ home page did not load")
+            return False
+
+        # Give IQ a moment to hydrate the <option>s — they sometimes arrive via XHR
+        # after the <select> first renders. We don't probe `option[@value="..."]` with
+        # wait_for_selector because <option>s inside a closed <select> aren't
+        # "visible" to Playwright, so the visibility wait always times out even when
+        # the option is present in the DOM. Instead we attempt the selection directly
+        # (page.select_option works on closed selects) and verify by reading back the
+        # select's value.
+        time.sleep(3)
+
+        self.logger.info(f"Selecting BAN {target_ban}...")
+        try:
+            self.browser_wrapper.select_dropdown_by_value(ban_select_xpath, target_ban, selector_type="xpath")
+        except Exception as e:
+            try:
+                select_text = self.browser_wrapper.get_text(ban_select_xpath, selector_type="xpath")
+                self.logger.error(
+                    f"Could not select BAN {target_ban}: {str(e)}. "
+                    f"Dropdown content was: {select_text!r}"
+                )
+            except Exception:
+                self.logger.error(f"Could not select BAN {target_ban}: {str(e)}")
+            return False
+        time.sleep(2)
+
+        # Verify the select now reflects the target BAN. We read the JS .value
+        # property (not the HTML "value" attribute, which doesn't track the current
+        # selection on a <select> — that's a common pitfall: getAttribute('value')
+        # would return '' even right after a successful select_option call).
+        current = (
+            self.browser_wrapper.page.evaluate(
+                "() => document.getElementById('select-a-ban').value"
+            )
+            or ""
+        ).strip()
+        if current != target_ban:
+            self.logger.error(f"BAN selection mismatch: expected '{target_ban}', got '{current}'")
+            return False
+        self.logger.info(f"BAN {target_ban} selected and confirmed")
+        return True
+
+    def _logout_iq(self) -> None:
+        """Logs out of TELUS IQ (mobilitymanager.telus.com).
+
+        IQ holds a session separate from my-telus; this clears it so the next run
+        starts fresh on the IQ side too. Tries the direct logout URL first (most
+        robust, no DOM dependency); falls back to clicking the avatar menu inside
+        site-header__root and the 'Logout' link if the URL navigation fails.
+        Best-effort: errors are logged and swallowed so a failed IQ logout never
+        blocks the my-telus logout that runs afterwards in cleanup.
+        """
+        logout_url = "https://mobilitymanager.telus.com/iq/manage/logout"
+        try:
+            self.logger.info("Logging out of TELUS IQ via direct URL...")
+            self.browser_wrapper.goto(logout_url)
+            self.browser_wrapper.wait_for_page_load()
+            time.sleep(2)
+            self.logger.info("TELUS IQ logout (direct URL) completed")
+            return
+        except Exception as e:
+            self.logger.warning(f"TELUS IQ direct-URL logout failed, trying avatar menu fallback: {str(e)}")
+
+        try:
+            avatar_xpath = '//*[@id="site-header__root"]//a[contains(@class, "site-header__header__user")]'
+            logout_link_xpath = '//*[@id="site-header__root"]//a[@href="/iq/manage/logout"]'
+            self.browser_wrapper.click_element(avatar_xpath, selector_type="xpath")
+            time.sleep(1)
+            self.browser_wrapper.click_element(logout_link_xpath, selector_type="xpath")
+            self.browser_wrapper.wait_for_page_load()
+            time.sleep(2)
+            self.logger.info("TELUS IQ logout (avatar menu) completed")
+        except Exception as e:
+            self.logger.warning(f"TELUS IQ avatar-menu logout also failed (continuing): {str(e)}")
+
+    def _dismiss_iq_modals(self) -> None:
+        """Closes any TELUS IQ confirmation modal that may appear after login.
+
+        Two modals can appear sharing duplicated ids ('Select customer' and
+        'Upcoming changes to order processing'). We don't care which one — just
+        close whatever's visible, anchoring on each modal's unique heading to
+        avoid clicking the wrong close button. Idempotent: safe no-op when none
+        are open. Loops a few times because dismissing one can unveil another.
+        """
+        modal_close_xpaths = [
+            '//div[@id="confirmation__dialog"][.//h2[contains(normalize-space(), "Upcoming changes to order processing")]]'
+            '//a[@id="cancel__clear__filter__button"]',
+            '//div[@id="confirmation__dialog"][.//h2[normalize-space()="Select customer"]]'
+            '//a[@id="cancel__clear__filter__button"]',
+        ]
+        for _ in range(3):
+            any_closed = False
+            for xpath in modal_close_xpaths:
+                try:
+                    if self.browser_wrapper.is_element_visible(xpath, timeout=1500, selector_type="xpath"):
+                        self.logger.info("TELUS IQ modal detected, closing...")
+                        self.browser_wrapper.click_element(xpath, selector_type="xpath")
+                        time.sleep(1.5)
+                        any_closed = True
+                except Exception as e:
+                    self.logger.warning(f"Error closing IQ modal (continuing): {str(e)}")
+            if not any_closed:
+                return
 
     def _handle_account_selection(self, billing_cycle: BillingCycle) -> bool:
         """Handles account selection screen if it appears."""
@@ -228,33 +412,25 @@ class TelusDailyUsageScraperStrategy(DailyUsageScraperStrategy):
             return True  # Continue if there's an error
 
     def _extract_pool_data(self) -> Optional[Tuple[int, int]]:
-        """Extracts pool_used and pool_size from usage div and converts to bytes."""
+        """Extracts pool_used and pool_size from the Usage page and converts to bytes."""
         try:
             self.logger.info("Extracting pool data...")
 
-            # XPath of div containing usage data
-            usage_container_xpath = (
-                '//*[@id="app"]/div[2]/div/div/div/div[3]/div[7]/div/div[2]/div/div[3]/div/div/div[5]'
-            )
+            # Pool data lives in the "total-usage" summary card at the top of the new
+            # Usage page. Anchor on that ancestor so we don't pick up the per-subscriber
+            # usage values from the table below (which share the same data-testid names).
+            usage_used_xpath = '//div[@data-testid="total-usage"]//*[@data-testid="usage-used"]'
+            usage_allowance_xpath = '//div[@data-testid="total-usage"]//*[@data-testid="usage-allowance"]'
 
-            if not self.browser_wrapper.find_element_by_xpath(usage_container_xpath, timeout=5000):
-                self.logger.warning("Usage container not found")
+            if not self.browser_wrapper.find_element_by_xpath(usage_used_xpath, timeout=5000):
+                self.logger.warning("Total-usage summary not found on Usage page")
                 return None
 
-            # Extract individual values using data-testid
-            usage_used_xpath = '//*[@data-testid="usage-used"]'
-            usage_allowance_xpath = '//*[@data-testid="usage-allowance"]'
+            pool_used_text = self.browser_wrapper.get_text(usage_used_xpath)
+            self.logger.info(f"Usage used raw: '{pool_used_text}'")
 
-            pool_used_text = None
-            pool_size_text = None
-
-            if self.browser_wrapper.find_element_by_xpath(usage_used_xpath, timeout=3000):
-                pool_used_text = self.browser_wrapper.get_text(usage_used_xpath)
-                self.logger.info(f"Usage used raw: '{pool_used_text}'")
-
-            if self.browser_wrapper.find_element_by_xpath(usage_allowance_xpath, timeout=3000):
-                pool_size_text = self.browser_wrapper.get_text(usage_allowance_xpath)
-                self.logger.info(f"Usage allowance raw: '{pool_size_text}'")
+            pool_size_text = self.browser_wrapper.get_text(usage_allowance_xpath)
+            self.logger.info(f"Usage allowance raw: '{pool_size_text}'")
 
             if not pool_used_text or not pool_size_text:
                 self.logger.warning("Could not extract usage values")
@@ -448,12 +624,22 @@ class TelusDailyUsageScraperStrategy(DailyUsageScraperStrategy):
             # 6. Reset to main screen
             self._reset_to_main_screen()
 
+            # 7. Log out of TELUS IQ while still on mobilitymanager.telus.com.
+            #    IQ keeps a session separate from my-telus, so leaving it open across
+            #    runs can cause stale-session issues. The my-telus logout runs later
+            #    via TelusAuthStrategy.logout() during cleanup.
+            self._logout_iq()
+
             return downloaded_files
 
         except Exception as e:
             self.logger.error(f"Error in daily usage download: {str(e)}")
             try:
                 self._reset_to_main_screen()
+            except:
+                pass
+            try:
+                self._logout_iq()
             except:
                 pass
             return downloaded_files

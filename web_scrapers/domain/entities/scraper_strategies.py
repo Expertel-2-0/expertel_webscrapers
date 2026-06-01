@@ -391,6 +391,9 @@ class DailyUsageScraperStrategy(ScraperBaseStrategy):
     def execute(self, config: ScraperConfig, billing_cycle: BillingCycle, credentials: Credentials) -> ScraperResult:
         try:
             self._prepare_job_directory()
+            # Expose credentials to _find_files_section so carrier scrapers can re-auth
+            # mid-flow (e.g. Telus IQ shows its own login during the OAuth handshake).
+            self.credentials = credentials
 
             files_section = self._find_files_section(config, billing_cycle)
             if not files_section:
