@@ -1755,6 +1755,8 @@ class VerizonAuthStrategy(AuthBaseStrategy):
 
         Note: Verizon site may show a login form briefly before redirecting to
         dashboard if already logged in. We wait for the page to settle first.
+        Accounts with pending onboarding land on the "Welcome Hub" page instead
+        of the My Business home; that page is detected and clicked through here.
         """
         try:
             # First, wait for page to settle - Verizon may redirect after initial load
@@ -1768,19 +1770,76 @@ class VerizonAuthStrategy(AuthBaseStrategy):
                 self.logger.info("Login form detected - waiting 15 seconds for potential redirect...")
                 time.sleep(15)
 
-            # Now check for welcome label (flexible: match any element containing "Welcome")
-            welcome_xpath = '//h2[contains(text(), "Welcome")]'
+            # Welcome Hub onboarding page means we are logged in; click through to the
+            # real home so downstream navigation (#gNavHeader) is available
+            if self._handle_welcome_hub_if_present():
+                return True
+
+            # Now check for welcome label (flexible: match any h1/h2 whose full text contains "Welcome")
+            welcome_xpath = '//*[self::h1 or self::h2][contains(., "Welcome")]'
             if self.browser_wrapper.is_element_visible(welcome_xpath, timeout=10000):
                 label_text = self.browser_wrapper.page.locator(welcome_xpath).first.text_content()
                 if label_text:
                     self.logger.info(f"Welcome label found: {label_text.strip()}")
                     return True
 
+            # Fallback: the secure app lives on mb.verizonwireless.com/mbt/secure,
+            # while the login page lives on mblogin.verizonwireless.com
+            current_url = self.browser_wrapper.get_current_url()
+            if "mb.verizonwireless.com/mbt/secure" in current_url:
+                self.logger.info(f"Logged in based on secure URL: {current_url}")
+                return True
+
             self.logger.info("Welcome label not found - not logged in")
+            self._log_page_diagnostics(current_url)
             return False
         except Exception as e:
             self.logger.warning(f"Error checking login status: {str(e)}")
             return False
+
+    def _handle_welcome_hub_if_present(self) -> bool:
+        """Detect the post-login Welcome Hub onboarding page and click through to the home page.
+
+        Returns True if the Welcome Hub was detected (i.e. we are logged in), False otherwise.
+        """
+        # Match the button by its text so the selector survives layout changes
+        button_by_text_xpath = (
+            '//button[contains(translate(normalize-space(.), '
+            '"ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz"), '
+            '"visit the my business home page")]'
+        )
+        # Reference xpath observed on the Welcome Hub page, kept as fallback
+        button_reference_xpath = '//*[@id="root"]/div/div[2]/div/div[1]/div[2]/div/button'
+
+        try:
+            for xpath in (button_by_text_xpath, button_reference_xpath):
+                if self.browser_wrapper.is_element_visible(xpath, timeout=5000):
+                    self.logger.info(
+                        "Welcome Hub onboarding page detected, clicking 'Visit the My Business home page'..."
+                    )
+                    self.browser_wrapper.click_element(xpath)
+                    self.browser_wrapper.wait_for_page_load()
+                    time.sleep(5)
+                    return True
+            return False
+        except Exception as e:
+            self.logger.warning(f"Error handling Welcome Hub page: {str(e)}")
+            return False
+
+    def _log_page_diagnostics(self, current_url: str) -> None:
+        """Log the current URL and visible h1/h2 texts to diagnose unrecognized pages."""
+        try:
+            headings = self.browser_wrapper.page.evaluate(
+                """
+                () => Array.from(document.querySelectorAll('h1, h2'))
+                    .map(h => h.textContent.trim())
+                    .filter(Boolean)
+                    .slice(0, 10)
+            """
+            )
+            self.logger.info(f"Page diagnostics - URL: {current_url}, h1/h2 headings: {headings}")
+        except Exception as e:
+            self.logger.warning(f"Could not collect page diagnostics: {str(e)}")
 
     def get_login_url(self) -> str:
         return CarrierPortalUrls.VERIZON.value
