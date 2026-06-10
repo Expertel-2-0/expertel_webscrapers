@@ -159,13 +159,19 @@ class VerizonPDFInvoiceScraperStrategy(PDFInvoiceScraperStrategy):
         Raises:
             ValueError: If account numbers don't match
         """
+        self.logger.info(f"Verifying account number: {expected_account}")
+
+        # Dynamic check: look for the expected account number anywhere on the page
+        account_text_xpath = f'//*[contains(normalize-space(text()), "{expected_account}")]'
+        if self.browser_wrapper.is_element_visible(account_text_xpath, timeout=15000):
+            self.logger.info("Account number found on page, verified successfully")
+            return
+
+        # Fallback: legacy absolute XPath (pre-redesign layout)
         account_xpath = (
             "/html/body/app-root/app-secure-layout/div/main/div/" "app-view-archived-bills/div/div[2]/div/div[2]"
         )
-
-        self.logger.info(f"Verifying account number: {expected_account}")
-
-        if self.browser_wrapper.is_element_visible(account_xpath, timeout=10000):
+        if self.browser_wrapper.is_element_visible(account_xpath, timeout=5000):
             displayed_account = self.browser_wrapper.get_text(account_xpath).strip()
             self.logger.info(f"Account displayed on page: {displayed_account}")
 
@@ -175,10 +181,26 @@ class VerizonPDFInvoiceScraperStrategy(PDFInvoiceScraperStrategy):
                 raise ValueError(error_msg)
 
             self.logger.info("Account number verified successfully")
-        else:
-            error_msg = "Could not find account number element on page"
-            self.logger.error(error_msg)
-            raise ValueError(error_msg)
+            return
+
+        self._log_page_diagnostics()
+        error_msg = "Could not find account number element on page"
+        self.logger.error(error_msg)
+        raise ValueError(error_msg)
+
+    def _log_page_diagnostics(self) -> None:
+        """Logs the current URL and visible headings to diagnose layout changes."""
+        try:
+            current_url = self.browser_wrapper.get_current_url()
+            headings = self.browser_wrapper.page.evaluate(
+                """() => Array.from(document.querySelectorAll('h1, h2, h3'))
+                    .map(el => el.innerText.trim())
+                    .filter(Boolean)
+                    .slice(0, 10)"""
+            )
+            self.logger.info(f"Page diagnostics - URL: {current_url}, headings: {headings}")
+        except Exception as e:
+            self.logger.warning(f"Could not collect page diagnostics: {str(e)}")
 
     def _format_month_from_date(self, target_date: date) -> str:
         """Formats date to match invoice card format: 'Nov 2025'."""
