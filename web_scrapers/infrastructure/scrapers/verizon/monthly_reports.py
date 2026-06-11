@@ -271,6 +271,9 @@ class VerizonMonthlyReportsScraperStrategy(MonthlyReportsScraperStrategy):
                 self.logger.error("Offer recovery & early termination fees report not found")
                 return None
 
+            # Dismiss the "reports not available yet" modal that may block the page
+            self._close_modal_if_open()
+
             # 3. Configure filters
             account_number = billing_cycle.account.number
             self.logger.info(f"Configuring filters for account: {account_number}")
@@ -357,6 +360,9 @@ class VerizonMonthlyReportsScraperStrategy(MonthlyReportsScraperStrategy):
                 self.logger.error("Activation & deactivation report not found")
                 return None
 
+            # Dismiss the "reports not available yet" modal that may block the page
+            self._close_modal_if_open()
+
             # 3. Configure filters
             account_number = billing_cycle.account.number
             self.logger.info(f"Configuring filters for account: {account_number}")
@@ -442,6 +448,9 @@ class VerizonMonthlyReportsScraperStrategy(MonthlyReportsScraperStrategy):
             else:
                 self.logger.error("Suspended wireless number report not found")
                 return None
+
+            # Dismiss the "reports not available yet" modal that may block the page
+            self._close_modal_if_open()
 
             # 3. Configure filters
             account_number = billing_cycle.account.number
@@ -784,6 +793,9 @@ class VerizonMonthlyReportsScraperStrategy(MonthlyReportsScraperStrategy):
             )
             self.logger.info("Navigating back to reports...")
 
+            # Close any modal that might be blocking clicks
+            self._close_modal_if_open()
+
             if self.browser_wrapper.is_element_visible(back_xpath, timeout=5000):
                 self.browser_wrapper.click_element(back_xpath)
                 time.sleep(3)
@@ -792,20 +804,29 @@ class VerizonMonthlyReportsScraperStrategy(MonthlyReportsScraperStrategy):
             self.logger.error(f"Error navigating back: {str(e)}")
 
     def _close_modal_if_open(self) -> bool:
-        """Closes any open modal if present. Returns True if a modal was closed."""
-        try:
-            modal_close_xpath = "//div[contains(@class, 'Modal') and contains(@class, 'is-active')]//button[contains(@class, 'Modal-close')]"
+        """Closes any open modal if present. Returns True if a modal was closed.
 
-            if self.browser_wrapper.is_element_visible(modal_close_xpath, timeout=2000):
-                self.logger.info("Modal detected - closing it...")
-                self.browser_wrapper.click_element(modal_close_xpath)
-                time.sleep(1)
-                self.logger.info("Modal closed")
-                return True
-            return False
-        except Exception as e:
-            self.logger.warning(f"Error closing modal: {str(e)}")
-            return False
+        Handles both the standard "X" close button and informational modals that
+        only offer an acknowledgement button (e.g. "Monthly reports are not
+        available yet for the <month> bill cycle." with an "I understand" button).
+        """
+        modal_button_xpaths = [
+            "//app-form-modal//button[contains(normalize-space(.), 'I understand')]",
+            "//div[contains(@class, 'Modal') and contains(@class, 'is-active')]//button[contains(@class, 'Modal-close')]",
+        ]
+
+        closed_any = False
+        for button_xpath in modal_button_xpaths:
+            try:
+                if self.browser_wrapper.is_element_visible(button_xpath, timeout=2000):
+                    self.logger.info("Modal detected - closing it...")
+                    self.browser_wrapper.click_element(button_xpath)
+                    time.sleep(1)
+                    self.logger.info("Modal closed")
+                    closed_any = True
+            except Exception as e:
+                self.logger.warning(f"Error closing modal: {str(e)}")
+        return closed_any
 
     def _reset_to_main_screen(self):
         """Resets to Verizon main screen."""
