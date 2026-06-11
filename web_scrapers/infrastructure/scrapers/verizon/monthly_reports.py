@@ -643,6 +643,10 @@ class VerizonMonthlyReportsScraperStrategy(MonthlyReportsScraperStrategy):
             True if both dropdowns were set successfully, False otherwise.
         """
         try:
+            # Selecting the account refreshes the report data, which can re-open the
+            # "reports not available yet" modal and block clicks - dismiss it again
+            self._close_modal_if_open()
+
             # 1. Open Bill cycle from dropdown
             from_dropdown_xpath = '//*[@id="monthRangeFrom"]//div[@role="combobox"]'
 
