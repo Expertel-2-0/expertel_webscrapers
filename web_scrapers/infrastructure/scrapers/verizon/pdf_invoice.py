@@ -153,40 +153,86 @@ class VerizonPDFInvoiceScraperStrategy(PDFInvoiceScraperStrategy):
 
     # ==================== HELPER METHODS ====================
 
+    # Dropdown anchored by its "Account number" label; survives layout reshuffles
+    ACCOUNT_DROPDOWN_XPATH = '//app-dropdown[.//label[contains(normalize-space(.), "Account number")]]'
+
     def _verify_account_number(self, expected_account: str) -> None:
-        """Verifies the displayed account number matches the expected one.
+        """Ensures the expected account is the one selected on the page.
+
+        The Previous bills page loads a default account in the "Account number"
+        dropdown; when it differs from the expected one, the account is picked
+        from the dropdown so the bill cards reload for the right account.
 
         Raises:
-            ValueError: If account numbers don't match
+            ValueError: If the expected account cannot be selected/verified
         """
         self.logger.info(f"Verifying account number: {expected_account}")
 
-        # Dynamic check: look for the expected account number anywhere on the page
-        account_text_xpath = f'//*[contains(normalize-space(text()), "{expected_account}")]'
-        if self.browser_wrapper.is_element_visible(account_text_xpath, timeout=15000):
-            self.logger.info("Account number found on page, verified successfully")
+        selected_xpath = f'{self.ACCOUNT_DROPDOWN_XPATH}//div[contains(@class, "selectedOption")]'
+        if self.browser_wrapper.is_element_visible(selected_xpath, timeout=15000):
+            displayed_account = self.browser_wrapper.get_text(selected_xpath).strip()
+            self.logger.info(f"Account selected by default: {displayed_account}")
+
+            if expected_account in displayed_account:
+                self.logger.info("Account number verified successfully")
+                return
+
+            self._select_account_from_dropdown(expected_account)
             return
 
-        # Fallback: legacy absolute XPath (pre-redesign layout)
-        account_xpath = (
-            "/html/body/app-root/app-secure-layout/div/main/div/" "app-view-archived-bills/div/div[2]/div/div[2]"
-        )
-        if self.browser_wrapper.is_element_visible(account_xpath, timeout=5000):
-            displayed_account = self.browser_wrapper.get_text(account_xpath).strip()
-            self.logger.info(f"Account displayed on page: {displayed_account}")
-
-            if expected_account not in displayed_account:
-                error_msg = f"Account mismatch! Expected: {expected_account}, " f"Found: {displayed_account}"
-                self.logger.error(error_msg)
-                raise ValueError(error_msg)
-
-            self.logger.info("Account number verified successfully")
+        # Fallback: account rendered as plain text (layout without dropdown)
+        account_text_xpath = f'//*[contains(normalize-space(text()), "{expected_account}")]'
+        if self.browser_wrapper.is_element_visible(account_text_xpath, timeout=5000):
+            self.logger.info("Account number found on page, verified successfully")
             return
 
         self._log_page_diagnostics()
         error_msg = "Could not find account number element on page"
         self.logger.error(error_msg)
         raise ValueError(error_msg)
+
+    def _select_account_from_dropdown(self, expected_account: str) -> None:
+        """Opens the Account number dropdown and selects the expected account.
+
+        Raises:
+            ValueError: If the account is not listed or selection doesn't stick
+        """
+        self.logger.info(f"Selecting account {expected_account} from dropdown...")
+
+        combobox_xpath = f'{self.ACCOUNT_DROPDOWN_XPATH}//div[@role="combobox"]'
+        self.browser_wrapper.click_element(combobox_xpath)
+
+        option_xpath = (
+            f'{self.ACCOUNT_DROPDOWN_XPATH}//ul[@role="listbox"]'
+            f'/li[@role="option"][contains(normalize-space(.), "{expected_account}")]'
+        )
+        if not self.browser_wrapper.is_element_visible(option_xpath, timeout=10000):
+            self._log_page_diagnostics()
+            error_msg = f"Account {expected_account} not available in Account number dropdown"
+            self.logger.error(error_msg)
+            raise ValueError(error_msg)
+
+        self.browser_wrapper.click_element(option_xpath)
+        self.logger.info("Waiting 10 seconds for bills to reload...")
+        time.sleep(10)
+
+        # Switching accounts can reset the active tab back to Previous bills
+        recent_bills_tab_xpath = '//li[contains(text(), "Recent bills")]'
+        if self.browser_wrapper.is_element_visible(recent_bills_tab_xpath, timeout=5000):
+            self.browser_wrapper.click_element(recent_bills_tab_xpath)
+            self.logger.info("Recent bills tab re-selected, waiting 10 seconds for bills to load...")
+            time.sleep(10)
+
+        selected_xpath = f'{self.ACCOUNT_DROPDOWN_XPATH}//div[contains(@class, "selectedOption")]'
+        displayed_account = self.browser_wrapper.get_text(selected_xpath).strip()
+        if expected_account not in displayed_account:
+            error_msg = (
+                f"Account mismatch after selection! Expected: {expected_account}, " f"Found: {displayed_account}"
+            )
+            self.logger.error(error_msg)
+            raise ValueError(error_msg)
+
+        self.logger.info(f"Account {expected_account} selected and verified")
 
     def _log_page_diagnostics(self) -> None:
         """Logs the current URL and visible headings to diagnose layout changes."""
