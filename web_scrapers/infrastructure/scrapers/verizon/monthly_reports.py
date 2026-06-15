@@ -533,9 +533,7 @@ class VerizonMonthlyReportsScraperStrategy(MonthlyReportsScraperStrategy):
             time.sleep(1)
 
             # Select "Account number" option
-            account_option_xpath = (
-                "//ul[@role='listbox']//li[@role='option' and contains(text(), 'Account number')]"
-            )
+            account_option_xpath = "//ul[@role='listbox']//li[@role='option' and contains(text(), 'Account number')]"
             if not self.browser_wrapper.is_element_visible(account_option_xpath, timeout=3000):
                 self.logger.error("'Account number' option not found in View by dropdown")
                 return False
@@ -775,9 +773,22 @@ class VerizonMonthlyReportsScraperStrategy(MonthlyReportsScraperStrategy):
 
                 if "Download full report" in download_text:
                     self.logger.info("Clicking Download full report...")
-                    return self.browser_wrapper.expect_download_and_click(
+                    file_path = self.browser_wrapper.expect_download_and_click(
                         download_xpath, timeout=60000, downloads_dir=self.job_downloads_dir
                     )
+                    if file_path:
+                        return file_path
+
+                    # No download event: a modal (e.g. "no data for this period")
+                    # may have swallowed the click — capture state, dismiss, retry once
+                    self.logger.warning("No download event after click - collecting page diagnostics...")
+                    self._log_download_failure_diagnostics()
+                    if self._close_modal_if_open():
+                        self.logger.info("Retrying Download full report after closing modal...")
+                        return self.browser_wrapper.expect_download_and_click(
+                            download_xpath, timeout=60000, downloads_dir=self.job_downloads_dir
+                        )
+                    return None
                 else:
                     self.logger.warning(f"Download text mismatch: '{download_text}'")
 
@@ -787,6 +798,24 @@ class VerizonMonthlyReportsScraperStrategy(MonthlyReportsScraperStrategy):
         except Exception as e:
             self.logger.error(f"Error downloading report: {str(e)}")
             return None
+
+    def _log_download_failure_diagnostics(self) -> None:
+        """Logs URL/headings and saves a screenshot to diagnose a failed download."""
+        try:
+            current_url = self.browser_wrapper.get_current_url()
+            headings = self.browser_wrapper.page.evaluate(
+                """() => Array.from(document.querySelectorAll('h1, h2, h3'))
+                    .map(el => el.innerText.trim())
+                    .filter(Boolean)
+                    .slice(0, 10)"""
+            )
+            self.logger.info(f"Page diagnostics - URL: {current_url}, headings: {headings}")
+
+            screenshot_path = os.path.join(self.job_downloads_dir, "download_failure.png")
+            self.browser_wrapper.take_screenshot(screenshot_path)
+            self.logger.info(f"Failure screenshot saved to: {screenshot_path}")
+        except Exception as e:
+            self.logger.warning(f"Could not collect download diagnostics: {str(e)}")
 
     def _navigate_back_to_reports(self):
         """Navigates back to reports section."""
