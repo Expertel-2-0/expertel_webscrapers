@@ -170,3 +170,6 @@ SCRAPER_EXECUTION_LOG_EMAILS = [
 
 # Frontend URL for building links in emails
 FRONTEND_URL = os.environ.get("FRONTEND_URL", "https://app.expertel.com")
+
+# Deployment environment identifier (e.g. "local", "staging", "production")
+ENVIRONMENT = os.environ.get("ENVIRONMENT", "")
