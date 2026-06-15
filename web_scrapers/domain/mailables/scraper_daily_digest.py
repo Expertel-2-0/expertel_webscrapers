@@ -57,8 +57,8 @@ class ScraperDailyDigestMailable(Mailable):
 
         pct = f"{d.success_pct:.1f}" if d.success_pct is not None else "n/a"
         return (
-            f"[Digest] Scrapers — {d.error_count} errors "
-            f"({d.high_error_count} high / {d.low_error_count} low), "
+            f"[Digest] Scrapers — {d.dev_job_count} dev-fix / "
+            f"{d.support_job_count} support, "
             f"{d.zombie_count} zombies, {pct}% success ({report_date})"
         )
 
@@ -100,6 +100,13 @@ class ScraperDailyDigestMailable(Mailable):
             "window_start": d.window_start,
             "window_end": d.window_end,
             "priority_high": ErrorPriority.HIGH,
+            # Lane-split triage (redesign)
+            "dev_cells": d.dev_cells,
+            "support_cells": d.support_cells,
+            "noaction_cells": d.noaction_cells,
+            "dev_job_count": d.dev_job_count,
+            "support_job_count": d.support_job_count,
+            "noaction_job_count": d.noaction_job_count,
         }
 
     def get_text_content(self) -> str:
@@ -129,27 +136,36 @@ class ScraperDailyDigestMailable(Mailable):
         # Summary
         pct_str = f"{d.success_pct:.1f}%" if d.success_pct is not None else "n/a"
         lines.append(
-            f"Summary: {d.error_count} errors "
-            f"({d.high_error_count} HIGH / {d.low_error_count} LOW), "
-            f"{d.zombie_count} zombies, {pct_str} success (24h)"
+            f"Summary: {d.dev_job_count} dev-fix / {d.support_job_count} support"
+            + (f" / {d.noaction_job_count} no-action" if d.noaction_job_count else "")
+            + f", {d.zombie_count} zombies, {pct_str} success (24h)"
         )
         lines.append("")
 
-        # Error cells
-        if d.errors_by_cell:
-            lines.append("=== ERRORS BY CELL (24h) ===")
-            for cell in d.errors_by_cell:
-                priority_label = "HIGH" if cell.priority == ErrorPriority.HIGH else "LOW"
-                last_err = cell.last_error_at.strftime("%Y-%m-%d %H:%M") if cell.last_error_at else "unknown"
+        def _emit_cells(header: str, cells: list) -> None:
+            if not cells:
+                return
+            lines.append(f"=== {header} ===")
+            for cell in cells:
+                new_flag = " [NEW today]" if cell.is_new else ""
+                broken = f"{cell.days_broken}d" if cell.days_broken is not None else "7+d"
                 lines.append(
-                    f"  [{priority_label}] {cell.carrier} / {cell.job_type_label}: "
-                    f"{cell.error_count} errors "
-                    f"({cell.high_count} high / {cell.low_count} low) — "
-                    f"accounts: {cell.accounts_affected}, "
-                    f"clients: {cell.clients_affected} — "
-                    f"last error: {last_err}"
+                    f"  {cell.carrier} / {cell.job_type_label} — {cell.error_label}{new_flag} "
+                    f"({cell.error_count} jobs, {cell.clients_affected} clients, broken {broken})"
                 )
+                for j in cell.jobs:
+                    when = j.completed_at.strftime("%Y-%m-%d %H:%M") if j.completed_at else "unknown"
+                    lines.append(
+                        f"      job#{j.job_id} — {j.client_name} / acct {j.account_number} — failed {when}"
+                    )
             lines.append("")
+
+        # Developer action — fix the scraper
+        _emit_cells("DEVELOPER ACTION — fix the scraper", d.dev_cells)
+        # Support action — contact the customer
+        _emit_cells("SUPPORT ACTION — contact the customer", d.support_cells)
+        # No action — not recoverable (only when present)
+        _emit_cells("NO ACTION — not recoverable", d.noaction_cells)
 
         # Zombies
         if d.zombies:

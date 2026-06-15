@@ -31,9 +31,12 @@ from web_scrapers.domain.digest import (
     DigestData,
     ErrorJobDetail,
     ErrorPriority,
+    Lane,
     RunRate,
     SilentGap,
     ZombieJob,
+    cell_error_label,
+    classify_cell_lane,
     classify_error_log,
     job_type_label,
 )
@@ -97,11 +100,22 @@ class ScraperDigestService:
         window_start = window_end - timedelta(hours=self._ERROR_WINDOW_HOURS)
         zombie_threshold = window_end - timedelta(hours=self.ZOMBIE_THRESHOLD_HOURS)
 
-        errors_by_cell = self.get_errors_by_cell(since=window_start)
+        # Health context is computed first so its per-cell success rate and
+        # last-success timestamp can drive the lane classification and the
+        # broken-since / NEW signals on each error cell.
         health_context = self.get_health_context(since=window_end - timedelta(days=self._HEALTH_WINDOW_DAYS))
+        health_map = {(h.carrier, h.job_type): h for h in health_context}
+
+        errors_by_cell = self.get_errors_by_cell(since=window_start, health_map=health_map)
         zombies = self.get_zombie_jobs(threshold=zombie_threshold)
         silent_gaps = self.get_silent_gaps(since=window_start)
         run_rate = self.get_run_rate()
+
+        # Partition error cells by triage lane; the template renders one
+        # section per lane and hides empty lanes.
+        dev_cells = [c for c in errors_by_cell if c.lane == Lane.DEV]
+        support_cells = [c for c in errors_by_cell if c.lane == Lane.SUPPORT]
+        noaction_cells = [c for c in errors_by_cell if c.lane == Lane.NOACTION]
 
         error_count = sum(c.error_count for c in errors_by_cell)
         high_error_count = sum(c.high_count for c in errors_by_cell)
@@ -137,29 +151,50 @@ class ScraperDigestService:
             zombie_count=zombie_count,
             success_pct=success_pct,
             alerts_url=alerts_url,
+            dev_cells=dev_cells,
+            support_cells=support_cells,
+            noaction_cells=noaction_cells,
+            dev_job_count=sum(c.error_count for c in dev_cells),
+            support_job_count=sum(c.error_count for c in support_cells),
+            noaction_job_count=sum(c.error_count for c in noaction_cells),
         )
 
-    def get_errors_by_cell(self, since: datetime) -> list[CellErrorSummary]:
+    def get_errors_by_cell(
+        self,
+        since: datetime,
+        health_map: Optional[dict[tuple[str, str], CellHealth]] = None,
+    ) -> list[CellErrorSummary]:
         """
         Return one CellErrorSummary per (carrier, job_type) with errors in the
-        24-hour window, ordered HIGH cells first then by error_count desc.
+        24-hour window.
 
         Corresponds to Q1 + Q5 in scraper_health_diagnostic.sql.
 
         Each job's log tail (last 500 chars) is fetched via the PostgreSQL
-        ``RIGHT()`` function and classified with ``classify_error_log()``.
-        Aggregation is done in Python to enable per-job priority tracking.
+        ``RIGHT()`` function.  Per job we also resolve the client name and
+        account number (so the email can list them per row).  Each cell is then
+        assigned a triage lane (DEV / SUPPORT / NOACTION) using the cell's
+        7-day success rate from ``health_map``, plus a broken-since count and a
+        NEW flag derived from the cell's last successful run.
 
         Parameters
         ----------
         since:
             Lower bound for ``completed_at`` (exclusive).
+        health_map:
+            Map of (carrier, job_type) → CellHealth (7-day window).  Supplies
+            the success rate and last-success timestamp used for lane
+            classification and the broken-since / NEW signals.  When omitted,
+            cells fall back to DEV with no broken-since / NEW data.
 
         Returns
         -------
         list[CellErrorSummary]
-            Sorted: HIGH priority cells first, then by error_count descending.
+            Sorted: NEW cells first, then DEV before SUPPORT before NOACTION,
+            then by error_count descending.
         """
+        health_map = health_map or {}
+
         qs = (
             ScraperJob.objects.filter(
                 status=ScraperJobStatus.ERROR,
@@ -168,7 +203,9 @@ class ScraperDigestService:
             .annotate(
                 carrier_name=F("scraper_config__carrier__name"),
                 account_id=F("scraper_config__account_id"),
+                account_number=F("scraper_config__account__number"),
                 client_id=F("scraper_config__account__workspace__client_id"),
+                client_name=F("scraper_config__account__workspace__client__name"),
                 log_tail=Func(
                     F("log"),
                     Value(500),
@@ -181,7 +218,9 @@ class ScraperDigestService:
                 "carrier_name",
                 "type",
                 "account_id",
+                "account_number",
                 "client_id",
+                "client_name",
                 "completed_at",
                 "log_tail",
             )
@@ -209,6 +248,8 @@ class ScraperDigestService:
                     priority=priority,
                     completed_at=row["completed_at"],
                     log_tail=row["log_tail"],
+                    client_name=row["client_name"] or "—",
+                    account_number=row["account_number"] or "—",
                 )
             )
             if row["account_id"]:
@@ -220,11 +261,36 @@ class ScraperDigestService:
             ):
                 cells[key]["last_error_at"] = row["completed_at"]
 
+        recently_healthy_cutoff = self._now - timedelta(hours=48)
+
         summaries: list[CellErrorSummary] = []
         for (carrier, jtype), data in cells.items():
             jobs: list[ErrorJobDetail] = data["jobs"]
             high_count = sum(1 for j in jobs if j.priority == ErrorPriority.HIGH)
             low_count = len(jobs) - high_count
+
+            health = health_map.get((carrier, jtype))
+            success_pct = health.success_pct if health else None
+            last_success = health.last_success if health else None
+
+            lane = classify_cell_lane(jobs, success_pct)
+            error_label = cell_error_label(jobs, lane)
+
+            # Broken-since: whole days since the cell last succeeded.  None when
+            # there has been no success in the health window (render as "7+ days").
+            days_broken: Optional[int] = None
+            if last_success is not None:
+                days_broken = max(0, (self._now - last_success).days)
+
+            # NEW: the cell was healthy within the last ~48h but has no success
+            # inside the 24h error window — i.e. a previously-working flow that
+            # broke today (carrier likely changed its site/login today).
+            is_new = (
+                last_success is not None
+                and last_success >= recently_healthy_cutoff
+                and last_success < since
+            )
+
             summaries.append(
                 CellErrorSummary(
                     carrier=carrier,
@@ -238,11 +304,16 @@ class ScraperDigestService:
                     clients_affected=len(data["client_ids"]),
                     jobs=jobs,
                     last_error_at=data["last_error_at"],
+                    lane=lane,
+                    error_label=error_label,
+                    days_broken=days_broken,
+                    is_new=is_new,
                 )
             )
 
-        # HIGH cells first, then by error_count desc
-        summaries.sort(key=lambda c: (0 if c.priority == ErrorPriority.HIGH else 1, -c.error_count))
+        # NEW first, then DEV → SUPPORT → NOACTION, then error_count desc.
+        _lane_rank = {Lane.DEV: 0, Lane.SUPPORT: 1, Lane.NOACTION: 2}
+        summaries.sort(key=lambda c: (not c.is_new, _lane_rank.get(c.lane, 9), -c.error_count))
         return summaries
 
     def get_health_context(self, since: datetime) -> list[CellHealth]:

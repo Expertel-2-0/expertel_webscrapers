@@ -3,389 +3,287 @@
 {% block title %}Scraper Health Digest{% endblock %}
 
 {% block extra_styles %}
-/* ── Digest-specific overrides ──────────────────────────────────────── */
+/* ── Triage lanes ───────────────────────────────────────────────────── */
+.lane-card { border-radius: 10px; padding: 16px; vertical-align: top; }
+.lane-icon { width: 22px; height: 22px; vertical-align: middle; }
+.lane-title { font-size: 12px; font-weight: 800; letter-spacing: 0.6px; text-transform: uppercase; margin: 0; }
+.lane-count { font-size: 30px; font-weight: 800; line-height: 1.1; margin: 6px 0 2px 0; }
+.lane-count small { font-size: 13px; font-weight: 600; }
+.lane-sub { font-size: 12px; line-height: 1.45; margin: 4px 0 0 0; }
+.lane-dev { background-color: #FDECEA; border: 1px solid #F5C4BC; }
+.lane-dev * { color: #B3261E; }
+.lane-support { background-color: #FFF4E5; border: 1px solid #FFD8A8; }
+.lane-support * { color: #B25A00; }
 
-/* Priority badges */
-.badge {
-  display: inline-block;
-  padding: 3px 10px;
-  border-radius: 999px;
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.5px;
-  text-transform: uppercase;
-}
-.badge-high {
-  background-color: #FFEBEE;
-  color: #C62828;
-  border: 1px solid #FFCDD2;
-}
-.badge-low {
-  background-color: #FFF8E1;
-  color: #E65100;
-  border: 1px solid #FFE0B2;
-}
-.badge-green {
-  background-color: #E8F5E9;
-  color: #2E7D32;
-  border: 1px solid #C8E6C9;
-}
+/* ── Section headers ────────────────────────────────────────────────── */
+.section-header { font-size: 13px; font-weight: 800; letter-spacing: 0.6px; text-transform: uppercase; margin: 30px 0 6px 0; padding-bottom: 6px; }
+.sh-dev { color: #B3261E; border-bottom: 2px solid #F5C4BC; }
+.sh-support { color: #B25A00; border-bottom: 2px solid #FFD8A8; }
+.sh-noop { color: #2E7D32; border-bottom: 2px solid #C3E3C9; }
+.sh-ref { color: #757575; border-bottom: 2px solid #E0E0E0; }
+.section-note { font-size: 12.5px; color: #616161; margin: 0 0 14px 0; border-left: 3px solid #E0E0E0; padding-left: 10px; }
 
-/* Section header */
-.section-header {
-  font-size: 13px;
-  font-weight: 700;
-  letter-spacing: 1px;
-  text-transform: uppercase;
-  color: #757575;
-  margin: 28px 0 12px 0;
-  padding-bottom: 6px;
-  border-bottom: 2px solid #E0E0E0;
-}
+/* ── Issue card ─────────────────────────────────────────────────────── */
+.issue { border: 1px solid #E4E4E4; border-radius: 10px; overflow: hidden; margin: 0 0 12px 0; }
+.issue-head { padding: 12px 16px; }
+.issue-head.dev { background-color: #FDF2F0; border-bottom: 1px solid #F5C4BC; }
+.issue-head.support { background-color: #FFF8EF; border-bottom: 1px solid #FFD8A8; }
+.issue-head.noop { background-color: #F1F8F2; border-bottom: 1px solid #C3E3C9; }
+.issue-title { font-size: 15px; font-weight: 700; color: #212121; margin: 0 0 6px 0; }
+.issue-body { padding: 12px 16px 14px; }
+.diagnosis { font-size: 13.5px; color: #2b2b2b; margin: 0 0 10px 0; }
+.action-line { font-size: 13px; margin: 0 0 12px 0; padding: 9px 12px; border-radius: 7px; background: #F5F7FA; border: 1px solid #E4E9EF; color:#333; }
+.action-line .lbl { font-weight: 800; text-transform: uppercase; font-size: 10.5px; letter-spacing: 0.5px; display: block; margin-bottom: 2px; color: #555; }
+.since { font-size: 11.5px; color: #6b6b6b; font-weight: 600; margin: 0 0 10px 0; padding: 6px 10px; background: #F7F7F7; border-radius: 6px; border: 1px solid #ECECEC; }
+.since .new-txt { color: #B3261E; font-weight: 800; }
 
-/* Generic data table */
-.data-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 13px;
-  margin: 0 0 16px 0;
-}
-.data-table th {
-  background-color: #FAFAFA;
-  color: #757575;
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.5px;
-  text-transform: uppercase;
-  padding: 8px 12px;
-  text-align: left;
-  border-bottom: 1px solid #E0E0E0;
-}
-.data-table td {
-  padding: 10px 12px;
-  color: #212121;
-  vertical-align: top;
-  border-bottom: 1px solid #F5F5F5;
-}
-.data-table tr:last-child td {
-  border-bottom: none;
-}
+/* Chips */
+.chip { display: inline-block; padding: 3px 9px; border-radius: 999px; font-size: 10.5px; font-weight: 800; letter-spacing: 0.4px; text-transform: uppercase; white-space: nowrap; margin-right: 4px; }
+.chip-dev { background:#FDECEA; color:#B3261E; border:1px solid #F5C4BC; }
+.chip-support { background:#FFF4E5; color:#B25A00; border:1px solid #FFD8A8; }
+.chip-noop { background:#ECF6EE; color:#2E7D32; border:1px solid #C3E3C9; }
+.chip-count { background:#EEE; color:#444; border:1px solid #DDD; }
+.chip-new { background:#B3261E; color:#FFFFFF !important; border:1px solid #B3261E; }
 
-/* Cell error block */
-.cell-block {
-  border: 1px solid #E0E0E0;
-  border-radius: 8px;
-  overflow: hidden;
-  margin: 0 0 20px 0;
-}
-.cell-block-header {
-  background-color: #FAFAFA;
-  padding: 10px 16px;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  border-bottom: 1px solid #E0E0E0;
-}
-.cell-block-header-text {
-  font-size: 14px;
-  font-weight: 600;
-  color: #212121;
-  margin: 0;
-}
-.cell-block-body {
-  padding: 12px 16px;
-}
-.cell-priority-note {
-  font-size: 12px;
-  color: #757575;
-  margin: 0 0 10px 0;
-  font-style: italic;
-}
+/* Data table */
+.data-table { width: 100%; border-collapse: collapse; font-size: 12.5px; margin: 0 0 4px 0; }
+.data-table th { background:#FAFAFA; color:#757575; font-size:10.5px; font-weight:800; letter-spacing:0.4px; text-transform:uppercase; padding:7px 10px; text-align:left; border-bottom:1px solid #E0E0E0; }
+.data-table td { padding:8px 10px; color:#212121; vertical-align:top; border-bottom:1px solid #F2F2F2; }
+.data-table tr:last-child td { border-bottom:none; }
+.mono { font-family:'SF Mono','Monaco','Consolas',monospace; }
+.good { color:#2E7D32; font-weight:700; }
+.warn { color:#B25A00; font-weight:700; }
+.bad  { color:#B3261E; font-weight:700; }
 
-/* Error log tail block (mirrors scraper_error.html .error-block) */
-.error-block {
-  font-family: 'SF Mono', 'Monaco', 'Inconsolata', 'Fira Mono', 'Droid Sans Mono', monospace;
-  font-size: 11px;
-  background-color: #FFF5F5;
-  color: #C62828;
-  padding: 8px 10px;
-  border-radius: 6px;
-  margin: 6px 0 0 0;
-  word-break: break-word;
-  white-space: pre-wrap;
-}
+details.log { margin: 8px 0 0 0; }
+details.log summary { font-size:11.5px; color:#757575; font-weight:700; cursor:pointer; }
+.error-block { font-family:'SF Mono','Monaco','Consolas',monospace; font-size:10.5px; background:#FFF5F5; color:#B3261E; padding:8px 10px; border-radius:6px; margin:4px 0 0 0; word-break:break-word; white-space:pre-wrap; }
 
-/* Run-rate warning banner */
-.runrate-warning {
-  background-color: #FFF3E0;
-  border: 1px solid #FFE0B2;
-  border-radius: 6px;
-  padding: 10px 14px;
-  font-size: 13px;
-  color: #E65100;
-  margin: 10px 0 0 0;
-}
+.all-green-banner { background-color:#E8F5E9; border:1px solid #C8E6C9; border-radius:8px; padding:16px 20px; text-align:center; margin:16px 0; }
+.all-green-banner p { color:#2E7D32; font-weight:600; font-size:16px; margin:0; }
+.runrate-warning { background-color:#FFF3E0; border:1px solid #FFE0B2; border-radius:6px; padding:10px 14px; font-size:13px; color:#E65100; margin:10px 0 0 0; }
+.sort-note { font-size:11.5px; color:#9E9E9E; margin:18px 0 0 0; border-top:1px solid #EEE; padding-top:12px; }
 
-/* Small note / caveat text */
-.caveat-text {
-  font-size: 12px;
-  color: #9E9E9E;
-  font-style: italic;
-  margin: 8px 0 0 0;
+@media only screen and (max-width: 600px) {
+  .lane-stack, .lane-stack td { display:block !important; width:100% !important; padding:0 0 10px 0 !important; }
 }
+{% endblock %}
 
-/* All-green message */
-.all-green-banner {
-  background-color: #E8F5E9;
-  border: 1px solid #C8E6C9;
-  border-radius: 8px;
-  padding: 16px 20px;
-  text-align: center;
-  margin: 16px 0;
-}
-.all-green-banner p {
-  color: #2E7D32;
-  font-weight: 600;
-  font-size: 16px;
-  margin: 0;
-}
+{% block header_content %}
+  <p class="email-header-text">expertel iQ</p>
+  <p class="email-header-subtitle">Daily Scraper Health Digest</p>
 {% endblock %}
 
 {% block greeting %}
-<h1>Daily Scraper Health Digest</h1>
+  <h1>What needs attention today</h1>
+  <p style="color:#757575;font-size:12px;margin:0 0 20px 0;">
+    Window <strong>{{ window_start|date:"Y-m-d H:i" }}</strong> &rarr;
+    <strong>{{ window_end|date:"Y-m-d H:i" }} UTC</strong>
+    &nbsp;&middot;&nbsp; {{ error_count }} failed job{{ error_count|pluralize }}
+    &nbsp;&middot;&nbsp; {{ zombie_count }} stuck
+    &nbsp;&middot;&nbsp; {% if success_pct is not None %}{{ success_pct }}%{% else %}n/a{% endif %} success (24 h)
+  </p>
 {% endblock %}
 
 {% block content %}
-<p style="color:#757575;font-size:13px;margin:0 0 20px 0;">
-  Window: <strong>{{ window_start|date:"Y-m-d H:i" }} UTC</strong>
-  &rarr; <strong>{{ window_end|date:"Y-m-d H:i" }} UTC</strong>
-  &nbsp;&middot;&nbsp;
-  Report date: <strong>{{ report_date|date:"Y-m-d" }}</strong>
-</p>
 
 {% if all_green %}
-{# ── ALL GREEN ──────────────────────────────────────────────────────── #}
-<div class="all-green-banner">
-  <p>All systems green — no errors, zombies, or silent gaps detected.</p>
-</div>
-
+  <div class="all-green-banner">
+    <p>&#10003; All scrapers healthy — no errors, zombies, or gaps in the last 24 h.</p>
+  </div>
 {% else %}
-{# ── SUMMARY STRIP ──────────────────────────────────────────────────── #}
-<table width="100%" cellpadding="0" cellspacing="0" role="presentation" style="margin:0 0 24px 0;">
-  <tr>
-    <td style="background:#FFEBEE;border-radius:8px;padding:14px 16px;text-align:center;width:25%;">
-      <span style="display:block;color:#757575;font-size:10px;font-weight:700;letter-spacing:1px;text-transform:uppercase;margin-bottom:4px;">Errors (24h)</span>
-      <span style="display:block;color:#C62828;font-size:22px;font-weight:700;">{{ error_count }}</span>
-    </td>
-    <td style="width:4px;"></td>
-    <td style="background:#FFF8E1;border-radius:8px;padding:14px 16px;text-align:center;width:25%;">
-      <span style="display:block;color:#757575;font-size:10px;font-weight:700;letter-spacing:1px;text-transform:uppercase;margin-bottom:4px;">High / Low</span>
-      <span style="display:block;color:#E65100;font-size:22px;font-weight:700;">{{ high_error_count }} / {{ low_error_count }}</span>
-    </td>
-    <td style="width:4px;"></td>
-    <td style="background:#F3E5F5;border-radius:8px;padding:14px 16px;text-align:center;width:25%;">
-      <span style="display:block;color:#757575;font-size:10px;font-weight:700;letter-spacing:1px;text-transform:uppercase;margin-bottom:4px;">Zombies</span>
-      <span style="display:block;color:#6A1B9A;font-size:22px;font-weight:700;">{{ zombie_count }}</span>
-    </td>
-    <td style="width:4px;"></td>
-    <td style="background:#F5F5F5;border-radius:8px;padding:14px 16px;text-align:center;width:21%;">
-      <span style="display:block;color:#757575;font-size:10px;font-weight:700;letter-spacing:1px;text-transform:uppercase;margin-bottom:4px;">Success %</span>
-      <span style="display:block;color:#212121;font-size:22px;font-weight:700;">{% if success_pct is not None %}{{ success_pct }}%{% else %}n/a{% endif %}</span>
-    </td>
-  </tr>
-</table>
-{% endif %}
 
-{# ── SECTION 1: ERRORS BY CELL ──────────────────────────────────────── #}
-{% if errors_by_cell %}
-<p class="section-header">Errors by cell (last 24 h)</p>
+  <!-- Triage summary -->
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" class="lane-stack" style="margin:0 0 8px 0;">
+    <tr>
+      <td width="48%" class="lane-card lane-dev">
+        <p class="lane-title">Dev fix</p>
+        <p class="lane-count">{{ dev_job_count }} <small>job{{ dev_job_count|pluralize }}</small></p>
+        <p class="lane-sub">Carrier sites changed or logins down{% if zombie_count %} + {{ zombie_count }} stuck job{{ zombie_count|pluralize }}{% endif %}. We fix the code.</p>
+      </td>
+      <td width="4%"></td>
+      <td width="48%" class="lane-card lane-support">
+        <p class="lane-title">Support</p>
+        <p class="lane-count">{{ support_job_count }} <small>customer{{ support_job_count|pluralize }}</small></p>
+        <p class="lane-sub">Logins rejected on otherwise-healthy carriers. Ask these customers to re-enter their portal credentials.</p>
+      </td>
+    </tr>
+  </table>
 
-{% for cell in errors_by_cell %}
-<div class="cell-block">
-  <div class="cell-block-header">
-    {% if cell.priority == priority_high %}
-    <span class="badge badge-high">HIGH &mdash; needs code / portal fix</span>
-    {% else %}
-    <span class="badge badge-low">LOW &mdash; credentials / login issue</span>
-    {% endif %}
-    <p class="cell-block-header-text">{{ cell.carrier }} &mdash; {{ cell.job_type_label }}</p>
-  </div>
-  <div class="cell-block-body">
-    <table class="data-table" role="presentation" style="margin-bottom:10px;">
-      <tr>
-        <th>Errors</th>
-        <th>High</th>
-        <th>Low</th>
-        <th>Accounts</th>
-        <th>Clients</th>
-        <th>Last error</th>
-      </tr>
-      <tr>
-        <td><strong>{{ cell.error_count }}</strong></td>
-        <td>{{ cell.high_count }}</td>
-        <td>{{ cell.low_count }}</td>
-        <td>{{ cell.accounts_affected }}</td>
-        <td>{{ cell.clients_affected }}</td>
-        <td>{% if cell.last_error_at %}{{ cell.last_error_at|date:"Y-m-d H:i" }} UTC{% else %}—{% endif %}</td>
-      </tr>
-    </table>
+  <!-- ───────── DEVELOPER ACTION ───────── -->
+  {% if dev_cells %}
+  <p class="section-header sh-dev">Developer action — fix the scraper</p>
+  <p class="section-note">Carrier site changed, login down, or a download/processing step failed. These do <strong>not</strong> resolve on their own. <span style="color:#B3261E;font-weight:700;">NEW</span> = a flow that was healthy until today (grab first).</p>
 
-    {# Individual job list #}
-    <table class="data-table" role="presentation">
-      <tr>
-        <th>Job ID</th>
-        <th>Priority</th>
-        <th>Completed at</th>
-      </tr>
-      {% for job in cell.jobs %}
-      <tr>
-        <td>#{{ job.job_id }}</td>
-        <td>
-          {% if job.priority == priority_high %}
-          <span class="badge badge-high">HIGH</span>
-          {% else %}
-          <span class="badge badge-low">LOW</span>
-          {% endif %}
-        </td>
-        <td>{% if job.completed_at %}{{ job.completed_at|date:"Y-m-d H:i" }} UTC{% else %}—{% endif %}</td>
-      </tr>
-      {% if forloop.first and job.log_tail %}
-      <tr>
-        <td colspan="3">
-          <p style="font-size:11px;color:#757575;margin:4px 0 2px 0;font-weight:600;">Most recent log tail:</p>
-          <pre class="error-block">{{ job.log_tail }}</pre>
-        </td>
-      </tr>
+  {% for cell in dev_cells %}
+  <div class="issue">
+    <div class="issue-head dev">
+      <p class="issue-title">{{ cell.carrier }} &mdash; {{ cell.job_type_label }}</p>
+      {% if cell.is_new %}<span class="chip chip-new">New today</span>{% endif %}
+      <span class="chip chip-dev">{{ cell.error_label }}</span>
+      <span class="chip chip-count">{{ cell.error_count }} job{{ cell.error_count|pluralize }} &middot; {{ cell.clients_affected }} client{{ cell.clients_affected|pluralize }}</span>
+    </div>
+    <div class="issue-body">
+      <p class="since">
+        {% if cell.is_new %}<span class="new-txt">&#128308; NEW — broke today.</span> Was healthy until now; the carrier likely changed its site/login today. Grab this first.
+        {% else %}&#9201; Broken {{ cell.broken_label }}.{% endif %}
+      </p>
+      <p class="diagnosis">Login may work, but the page element or download step failed — the carrier changed the page or the scraper selector is stale.</p>
+      <div class="action-line"><span class="lbl">Do this</span>Capture the current page (DOM/screenshot), update the selector or step, and pause retries on this cell until the fix lands.</div>
+      <table class="data-table">
+        <tr><th>Job</th><th>Client</th><th>Account</th><th>Type</th><th>Failed</th></tr>
+        {% for j in cell.jobs %}
+        <tr>
+          <td class="mono">#{{ j.job_id }}</td>
+          <td>{{ j.client_name }}</td>
+          <td class="mono">{{ j.account_number }}</td>
+          <td>{{ cell.job_type_label }}</td>
+          <td class="mono">{{ j.completed_at|date:"m-d H:i" }}</td>
+        </tr>
+        {% endfor %}
+      </table>
+      {% if cell.worst_log_tail %}
+      <details class="log"><summary>Log tail</summary><pre class="error-block">{{ cell.worst_log_tail }}</pre></details>
       {% endif %}
-      {% endfor %}
-    </table>
+    </div>
   </div>
-</div>
-{% endfor %}
+  {% endfor %}
+  {% endif %}
+
+  <!-- ───────── SUPPORT ACTION ───────── -->
+  {% if support_cells %}
+  <p class="section-header sh-support">Support action — contact the customer</p>
+  <p class="section-note">Individual login failures on a carrier that is otherwise healthy. One account fails while the rest work &rarr; the customer changed or expired their portal password. No code fix — Support gets fresh credentials.</p>
+
+  {% for cell in support_cells %}
+  <div class="issue">
+    <div class="issue-head support">
+      <p class="issue-title">{{ cell.carrier }} &mdash; {{ cell.job_type_label }}</p>
+      <span class="chip chip-support">{{ cell.error_label }}</span>
+      <span class="chip chip-count">{{ cell.accounts_affected }} acct{{ cell.accounts_affected|pluralize }} &middot; {{ cell.clients_affected }} client{{ cell.clients_affected|pluralize }}</span>
+    </div>
+    <div class="issue-body">
+      <p class="since">&#9201; Failing {{ cell.broken_label }} — retries exhausted. The longer it fails, the longer the customer's data is stale.</p>
+      <p class="diagnosis">{{ cell.carrier }} is healthy overall, so these logins are isolated to specific customers — their stored portal password no longer works.</p>
+      <div class="action-line"><span class="lbl">Do this</span>Support contacts each customer to re-enter their {{ cell.carrier }} portal credentials. Retries are paused so we stop hammering the portal with a dead password.</div>
+      <table class="data-table">
+        <tr><th>Job</th><th>Client</th><th>Account</th><th>Type</th><th>Failed</th></tr>
+        {% for j in cell.jobs %}
+        <tr>
+          <td class="mono">#{{ j.job_id }}</td>
+          <td>{{ j.client_name }}</td>
+          <td class="mono">{{ j.account_number }}</td>
+          <td>{{ cell.job_type_label }}</td>
+          <td class="mono">{{ j.completed_at|date:"m-d H:i" }}</td>
+        </tr>
+        {% endfor %}
+      </table>
+      {% if cell.worst_log_tail %}
+      <details class="log"><summary>Log tail</summary><pre class="error-block">{{ cell.worst_log_tail }}</pre></details>
+      {% endif %}
+    </div>
+  </div>
+  {% endfor %}
+  {% endif %}
+
+  <!-- ───────── NO ACTION (only when present) ───────── -->
+  {% if noaction_cells or silent_gaps %}
+  <p class="section-header sh-noop">No action — not recoverable / investigate</p>
+  <p class="section-note">Jobs that can't succeed (deleted client or purged statement) — orchestration should stop scheduling them — plus monthly successes whose files aren't fully processed yet (verify, file status may update async).</p>
+
+  {% for cell in noaction_cells %}
+  <div class="issue">
+    <div class="issue-head noop">
+      <p class="issue-title">{{ cell.carrier }} &mdash; {{ cell.job_type_label }}</p>
+      <span class="chip chip-noop">{{ cell.error_label }}</span>
+      <span class="chip chip-count">{{ cell.error_count }} job{{ cell.error_count|pluralize }}</span>
+    </div>
+    <div class="issue-body">
+      <p class="diagnosis">Not recoverable — the client/workspace was deleted or the statement is no longer retained by the carrier. Cancel these jobs upstream.</p>
+    </div>
+  </div>
+  {% endfor %}
+
+  {% if silent_gaps %}
+  <table class="data-table">
+    <tr><th>Job</th><th>Carrier</th><th>Account</th><th>Cycle</th><th>Files (proc/total)</th></tr>
+    {% for g in silent_gaps %}
+    <tr>
+      <td class="mono">#{{ g.job_id }}</td>
+      <td>{{ g.carrier }}</td>
+      <td class="mono">{{ g.account_number }}</td>
+      <td class="mono">{{ g.billing_cycle_id }}</td>
+      <td>{{ g.processed }}/{{ g.total_files }} <span class="warn">({{ g.not_processed }} pending)</span></td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% endif %}
+  {% endif %}
+
 {% endif %}
 
-{# ── SECTION 2: HEALTH CONTEXT (7d) ─────────────────────────────────── #}
+<!-- ───────── REFERENCE — 7-day health ───────── -->
 {% if health_context %}
-<p class="section-header">Health context (last 7 days)</p>
-<table class="data-table" role="presentation">
+<p class="section-header sh-ref">Reference — 7-day health (context, no action)</p>
+<table class="data-table">
+  <tr><th>Carrier</th><th>Type</th><th>Success %</th><th>OK</th><th>Err</th><th>Avg retries</th></tr>
+  {% for h in health_context %}
   <tr>
-    <th>Carrier</th>
-    <th>Type</th>
-    <th>Success %</th>
-    <th>Success</th>
-    <th>Error</th>
-    <th>After retry</th>
-    <th>Avg retries</th>
-  </tr>
-  {% for cell in health_context %}
-  <tr>
-    <td>{{ cell.carrier }}</td>
-    <td>{{ cell.job_type_label }}</td>
+    <td>{{ h.carrier }}</td>
+    <td>{{ h.job_type_label }}</td>
     <td>
-      {% if cell.success_pct is not None %}
-        {% if cell.success_pct >= 90 %}
-        <span style="color:#2E7D32;font-weight:700;">{{ cell.success_pct }}%</span>
-        {% elif cell.success_pct >= 70 %}
-        <span style="color:#E65100;font-weight:700;">{{ cell.success_pct }}%</span>
-        {% else %}
-        <span style="color:#C62828;font-weight:700;">{{ cell.success_pct }}%</span>
-        {% endif %}
-      {% else %}
-      <span style="color:#9E9E9E;">n/a</span>
-      {% endif %}
+      {% if h.success_pct is None %}<span style="color:#9E9E9E;">n/a</span>
+      {% elif h.success_pct >= 90 %}<span class="good">{{ h.success_pct }}%</span>
+      {% elif h.success_pct >= 70 %}<span class="warn">{{ h.success_pct }}%</span>
+      {% else %}<span class="bad">{{ h.success_pct }}%</span>{% endif %}
     </td>
-    <td>{{ cell.success }}</td>
-    <td>{{ cell.error }}</td>
-    <td>{{ cell.succeeded_after_retry }}</td>
-    <td>{% if cell.avg_retries_on_success is not None %}{{ cell.avg_retries_on_success }}{% else %}—{% endif %}</td>
+    <td>{{ h.success }}</td>
+    <td>{{ h.error }}</td>
+    <td>{% if h.avg_retries_on_success is not None %}{{ h.avg_retries_on_success }}{% else %}—{% endif %}</td>
   </tr>
   {% endfor %}
 </table>
 {% endif %}
 
-{# ── SECTION 3: ZOMBIE JOBS ──────────────────────────────────────────── #}
+<!-- Zombies summary -->
 {% if zombies %}
-<p class="section-header">Zombie jobs</p>
-{% with zombie_num=zombie_count|stringformat:"s" %}
-{% with zombie_message="<strong>"|add:zombie_num|add:"</strong> job(s) stuck in in_progress / running state. These jobs never wrote a terminal status — the processor likely crashed mid-run." %}
-{% include "emails/components/_alert_box.html" with message=zombie_message %}
-{% endwith %}
-{% endwith %}
-
-<table class="data-table" role="presentation">
-  <tr>
-    <th>Job ID</th>
-    <th>Carrier</th>
-    <th>Type</th>
-    <th>Status</th>
-    <th>Account</th>
-    <th>Retries</th>
-    <th>Available at</th>
-  </tr>
+<p class="section-header sh-ref">Stuck jobs (zombies) — {{ zombie_count }}</p>
+<p class="section-note">Frozen in <span class="mono">in_progress</span>/<span class="mono">running</span> — the processor crashed mid-run. Needs a watchdog to reset and a one-time cleanup.</p>
+<table class="data-table">
+  <tr><th>Job</th><th>Carrier</th><th>Type</th><th>Status</th><th>Account</th><th>Since</th></tr>
   {% for z in zombies %}
   <tr>
-    <td>#{{ z.job_id }}</td>
+    <td class="mono">#{{ z.job_id }}</td>
     <td>{{ z.carrier }}</td>
     <td>{{ z.job_type_label }}</td>
-    <td><span style="font-weight:600;">{{ z.status }}</span></td>
-    <td>{{ z.account_number }}</td>
-    <td>{{ z.retry_count }}</td>
-    <td>{% if z.available_at %}{{ z.available_at|date:"Y-m-d H:i" }} UTC{% else %}<span style="color:#9E9E9E;">unknown</span>{% endif %}</td>
+    <td class="mono">{{ z.status }}</td>
+    <td class="mono">{{ z.account_number }}</td>
+    <td class="mono">{% if z.available_at %}{{ z.available_at|date:"Y-m-d H:i" }}{% else %}—{% endif %}</td>
   </tr>
   {% endfor %}
 </table>
 {% endif %}
 
-{# ── SECTION 4: SILENT GAPS ──────────────────────────────────────────── #}
-{% if silent_gaps %}
-<p class="section-header">Silent gaps — success jobs with unprocessed files</p>
-<table class="data-table" role="presentation">
-  <tr>
-    <th>Job ID</th>
-    <th>Carrier</th>
-    <th>Account</th>
-    <th>Cycle</th>
-    <th>Total files</th>
-    <th>Processed</th>
-    <th>Not processed</th>
-    <th>Completed at</th>
-  </tr>
-  {% for gap in silent_gaps %}
-  <tr>
-    <td>#{{ gap.job_id }}</td>
-    <td>{{ gap.carrier }}</td>
-    <td>{{ gap.account_number }}</td>
-    <td>{{ gap.billing_cycle_id }}</td>
-    <td>{{ gap.total_files }}</td>
-    <td>{{ gap.processed }}</td>
-    <td><strong style="color:#C62828;">{{ gap.not_processed }}</strong></td>
-    <td>{% if gap.completed_at %}{{ gap.completed_at|date:"Y-m-d H:i" }} UTC{% else %}—{% endif %}</td>
-  </tr>
-  {% endfor %}
-</table>
-<p class="caveat-text">
-  File statuses may be updated asynchronously by the backend — treat these as
-  &ldquo;investigate&rdquo;, not confirmed failures.
-</p>
-{% endif %}
-
-{# ── SECTION 5: RUN RATE ─────────────────────────────────────────────── #}
-<p class="section-header">Run rate</p>
-<p style="font-size:14px;color:#212121;margin:0;">
-  Yesterday (<strong>{{ run_rate.yesterday|date:"Y-m-d" }}</strong>):
-  <strong>{{ run_rate.yesterday_finished }}</strong> finished
-  ({{ run_rate.yesterday_success }} success&nbsp;/&nbsp;{{ run_rate.yesterday_error }} error)
-  &nbsp;&middot;&nbsp;
-  7-day avg: <strong>{{ run_rate.trailing_7d_avg }}</strong>
-</p>
+<!-- Run rate -->
 {% if run_rate.flagged %}
-<p class="runrate-warning">
-  <strong>Warning:</strong> yesterday&rsquo;s throughput is less than 50&thinsp;% of the
-  7-day average.  This may indicate a scheduler or processor outage.
-</p>
+<div class="runrate-warning">
+  &#9888; Yesterday finished {{ run_rate.yesterday_finished }} jobs vs a 7-day average of {{ run_rate.trailing_7d_avg }} — under 50%. Possible scheduler or processor outage.
+</div>
 {% endif %}
 
-{# ── CTA BUTTON ──────────────────────────────────────────────────────── #}
-{% include "emails/components/_button.html" with url=alerts_url text="Open scraper jobs" %}
+<p class="sort-note">
+  <strong>How items are sorted:</strong> login failure on a healthy carrier &rarr;
+  <span style="color:#B25A00;">Support</span> (bad password). Login failure across a whole carrier, or site/download/processing errors, or stuck jobs &rarr;
+  <span style="color:#B3261E;">Dev fix</span>. Deleted-client &amp; purged-statement jobs &rarr;
+  <span style="color:#2E7D32;">No action</span>. NEW (broke today) sorts first.
+</p>
 
+{% endblock %}
+
+{% block sign_off %}
+<hr>
+<p class="support-text" style="font-size:12px;color:#9E9E9E;">
+  One digest per day — replaces individual per-job failure emails. Sent even when all-green (a missing email means the digest job itself failed).
+  &nbsp;<a href="{{ alerts_url }}">View all scraper jobs &rarr;</a>
+</p>
 {% endblock %}
