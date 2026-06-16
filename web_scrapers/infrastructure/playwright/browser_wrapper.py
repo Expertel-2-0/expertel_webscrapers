@@ -1,4 +1,5 @@
 import os
+import random
 import time
 
 from playwright.sync_api import Page, TimeoutError as PlaywrightTimeoutError
@@ -81,6 +82,90 @@ class PlaywrightWrapper(BrowserWrapper):
         self.page.wait_for_selector(resolved, timeout=timeout)
         locator = self.page.locator(resolved)
         locator.fill(text)
+
+    # ------------------------------------------------------------------
+    # Human-like interaction primitives (opt-in)
+    # ------------------------------------------------------------------
+    # reCAPTCHA Enterprise and similar adaptive anti-bot systems score the
+    # browser partly on behavioral biometrics: mouse trajectory, keystroke
+    # cadence, and time-on-page. The plain type_text()/click_element() helpers
+    # emit a robotic signature — page.type() sends every character at ~0ms with
+    # uniform spacing, and page.click() teleports to the element center with no
+    # approach path. These methods reproduce the human-like mouse trajectory
+    # already used for the Telus Cloudflare checkbox
+    # (TelusAuthStrategy._humanlike_click_iframe) but generalized to any element,
+    # plus per-character typing with randomized delays. They are opt-in: callers
+    # that don't need them keep using the plain methods unchanged.
+
+    def human_pause(self, min_seconds: float = 0.4, max_seconds: float = 1.2) -> None:
+        """Sleep a randomized amount so inter-step pacing isn't machine-regular."""
+        time.sleep(random.uniform(min_seconds, max_seconds))
+
+    def human_click(self, selector: str, timeout: int = 10000, selector_type: str = "xpath") -> None:
+        """Click an element by driving page.mouse along a curved trajectory with a
+        hover dwell and randomized button down/up timing, instead of Playwright's
+        instant center-click. Falls back to a normal click if the element has no
+        bounding box (e.g. zero-size / off-screen).
+        """
+        resolved = self._resolve_selector(selector, selector_type)
+        self.page.wait_for_selector(resolved, timeout=timeout)
+        locator = self.page.locator(resolved).first
+        try:
+            locator.scroll_into_view_if_needed(timeout=timeout)
+        except Exception:
+            pass
+
+        box = locator.bounding_box()
+        if not box:
+            # No geometry to aim at — fall back to a normal click so the flow still works.
+            self.page.click(resolved)
+            self._post_action()
+            return
+
+        # Aim near the center with a little jitter so the click point isn't pixel-perfect.
+        target_x = box["x"] + box["width"] / 2 + random.uniform(-box["width"] / 6, box["width"] / 6)
+        target_y = box["y"] + box["height"] / 2 + random.uniform(-box["height"] / 6, box["height"] / 6)
+        # Approach from an off-target waypoint so the path is curved, not a straight teleport.
+        waypoint_x = target_x + random.uniform(-160, 160)
+        waypoint_y = target_y - random.uniform(60, 160)
+
+        self.page.mouse.move(waypoint_x, waypoint_y, steps=random.randint(8, 14))
+        time.sleep(random.uniform(0.04, 0.12))
+        self.page.mouse.move(target_x, target_y, steps=random.randint(18, 30))
+        time.sleep(random.uniform(0.12, 0.35))  # hover dwell before pressing
+        self.page.mouse.down()
+        time.sleep(random.uniform(0.04, 0.11))
+        self.page.mouse.up()
+        self._post_action()
+
+    def human_type(
+        self,
+        selector: str,
+        text: str,
+        timeout: int = 10000,
+        selector_type: str = "xpath",
+        clear_first: bool = True,
+    ) -> None:
+        """Focus the field with a human-like click, then type one character at a
+        time with randomized inter-keystroke delays (and occasional longer
+        pauses), instead of page.type()'s zero-delay uniform burst.
+        """
+        resolved = self._resolve_selector(selector, selector_type)
+        self.page.wait_for_selector(resolved, timeout=timeout)
+        # Click into the field like a person would, so focus + mouse activity register.
+        self.human_click(selector, timeout=timeout, selector_type=selector_type)
+        if clear_first:
+            try:
+                self.page.locator(resolved).first.fill("")
+            except Exception:
+                pass
+
+        for char in text:
+            self.page.keyboard.type(char)
+            time.sleep(random.uniform(0.05, 0.18))
+            # Occasionally hesitate a little longer, the way humans do mid-entry.
+            if random.random() < 0.06:
+                time.sleep(random.uniform(0.25, 0.6))
 
     def select_dropdown_option(
         self, selector: str, option_text: str, timeout: int = 10000, selector_type: str = "xpath"

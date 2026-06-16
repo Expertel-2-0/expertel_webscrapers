@@ -30,25 +30,28 @@ class BellEnterpriseAuthStrategy(AuthBaseStrategy):
         try:
             self.browser_wrapper.goto(self.get_login_url())
             self.browser_wrapper.wait_for_page_load(60000)
-            time.sleep(3)
+            # Randomized dwell + human-like input below: reCAPTCHA Enterprise scores
+            # mouse movement, keystroke cadence, and time-on-page, so the login uses
+            # human_type/human_click/human_pause instead of instant type+click.
+            self.browser_wrapper.human_pause(2.5, 4.0)
 
             username_xpath = "//*[@id='Username']"
             if not self._type_and_verify(username_xpath, credentials.username, field_name="username"):
                 self.logger.error("Aborting Bell Enterprise login: username could not be typed completely")
                 return False
-            time.sleep(1)
+            self.browser_wrapper.human_pause(0.6, 1.4)
 
             password_xpath = "//*[@id='Password']"
             if not self._type_and_verify(password_xpath, credentials.password, field_name="password"):
                 self.logger.error("Aborting Bell Enterprise login: password could not be typed completely")
                 return False
-            time.sleep(1)
+            self.browser_wrapper.human_pause(0.6, 1.4)
 
             login_button_xpath = "//*[@id='loginBtn']"
-            self.browser_wrapper.click_element(login_button_xpath)
+            self.browser_wrapper.human_click(login_button_xpath)
 
             self.browser_wrapper.wait_for_page_load()
-            time.sleep(10)
+            self.browser_wrapper.human_pause(8.0, 11.0)
 
             return self.is_logged_in()
 
@@ -73,11 +76,15 @@ class BellEnterpriseAuthStrategy(AuthBaseStrategy):
         resolved = self.browser_wrapper._resolve_selector(selector, selector_type)
         expected_len = len(text)
         for attempt in range(1, max_attempts + 1):
+            # human_type clears the field (clear_first=True), focuses it with a
+            # human-like click, then types char-by-char with randomized delays —
+            # raising the behavioral signal reCAPTCHA Enterprise scores. The
+            # read-back length check below still guards against focus-steal
+            # truncation; a short attempt simply retries.
             try:
-                self.browser_wrapper.page.locator(resolved).fill("")
+                self.browser_wrapper.human_type(selector, text, selector_type=selector_type)
             except Exception as e:
-                self.logger.warning(f"Could not clear {field_name} before attempt {attempt}: {e}")
-            self.browser_wrapper.type_text(selector, text, selector_type=selector_type)
+                self.logger.warning(f"Could not type {field_name} on attempt {attempt}: {e}")
             try:
                 actual = self.browser_wrapper.page.input_value(resolved) or ""
             except Exception as e:
@@ -158,25 +165,27 @@ class BellAuthStrategy(AuthBaseStrategy):
         try:
             self.browser_wrapper.goto(self.get_login_url())
             self.browser_wrapper.wait_for_page_load(60000)
-            time.sleep(3)
+            # Human-like input (see BellEnterpriseAuthStrategy): human_type/human_click
+            # raise the mouse + keystroke + time-on-page signals reCAPTCHA scores.
+            self.browser_wrapper.human_pause(2.5, 4.0)
 
             email_xpath = (
                 "/html[1]/body[1]/main[1]/div[4]/div[1]/div[1]/div[2]/div[2]/div[2]/form[1]/div[1]/div[2]/input[1]"
             )
-            self.browser_wrapper.type_text(email_xpath, credentials.username)
-            time.sleep(1)
+            self.browser_wrapper.human_type(email_xpath, credentials.username)
+            self.browser_wrapper.human_pause(0.6, 1.4)
 
             password_xpath = (
                 "/html[1]/body[1]/main[1]/div[4]/div[1]/div[1]/div[2]/div[2]/div[2]/form[1]/div[2]/div[2]/input[1]"
             )
-            self.browser_wrapper.type_text(password_xpath, credentials.password)
-            time.sleep(1)
+            self.browser_wrapper.human_type(password_xpath, credentials.password)
+            self.browser_wrapper.human_pause(0.6, 1.4)
 
             login_button_xpath = "/html[1]/body[1]/main[1]/div[4]/div[1]/div[1]/div[2]/div[2]/div[2]/form[1]/button[1]"
-            self.browser_wrapper.click_element(login_button_xpath)
+            self.browser_wrapper.human_click(login_button_xpath)
 
             self.browser_wrapper.wait_for_page_load()
-            time.sleep(5)
+            self.browser_wrapper.human_pause(4.0, 6.0)
 
             # Bell's login form rejects bad credentials inline (no redirect, no 2FA screen):
             # an <p class="error-desc invalid"> appears inside #divEmailAddress with the
