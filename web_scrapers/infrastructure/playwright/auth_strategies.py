@@ -835,47 +835,39 @@ class RogersAuthStrategy(AuthBaseStrategy):
         try:
             self.logger.info("Starting login in Rogers...")
 
-            self.browser_wrapper.goto(self.get_login_url())
-
-            time.sleep(3)
-
-            # Click on Sign In button (try multiple XPaths as the structure may vary)
-            sign_in_button_xpaths = [
-                '//*[@id="login"]/div[2]/div[3]/div/input',
-                '//*[@id="login"]/div[2]/div[4]/div/input',
-            ]
-            self.logger.info("Clicking Sign In button...")
-            for xpath in sign_in_button_xpaths:
-                try:
-                    if self.browser_wrapper.is_element_visible(xpath, timeout=3000):
-                        self.logger.info(f"Sign In button found with xpath: {xpath}")
-                        self.browser_wrapper.click_element(xpath)
-                        break
-                except Exception:
-                    continue
-            else:
-                raise Exception("Sign In button not found with any of the known XPaths")
-            time.sleep(3)
-
-            # Enter username/email
-            username_input_xpath = '//*[@id="ds-form-input-id-0"]'
-            self.logger.info(f"Entering username: {credentials.username}")
-            self.browser_wrapper.wait_for_element(username_input_xpath, timeout=10000)
-            self.browser_wrapper.clear_and_type(username_input_xpath, credentials.username)
-            time.sleep(1)
-
-            # Click Continue button
-            continue_button_xpath = (
-                "/html/body/app-root/div/div/div/div/div/div/div/div/ng-component/form/div[3]/button"
-            )
-            self.logger.info("Clicking Continue...")
-            self.browser_wrapper.click_element(continue_button_xpath)
-            time.sleep(5)
-
-            # Enter password (dynamic form change)
+            # The username/password steps are served by Transmit Security
+            # (account-business.rogers.com). On a cold browser profile the heavy
+            # IdP JS bundle can take well over 30s to render the password field,
+            # so the first attempt times out; the bundle is then cached in the
+            # persistent profile and a fresh reload renders it quickly. Retry the
+            # navigate->Sign In->username->Continue sequence so a cold start
+            # self-heals within a single login() call (a reload hits the now-warm
+            # cache) instead of failing the whole job and waiting for the next-day
+            # retry.
             password_input_xpath = '//*[@id="input_password"]'
+            max_password_attempts = 2
+            password_field_ready = False
+            for attempt in range(1, max_password_attempts + 1):
+                try:
+                    self._navigate_to_password_step(credentials)
+                    self.browser_wrapper.wait_for_element(password_input_xpath, timeout=30000)
+                    password_field_ready = True
+                    break
+                except Exception as e:
+                    if attempt < max_password_attempts:
+                        self.logger.warning(
+                            f"Password field not ready on attempt {attempt}/{max_password_attempts} "
+                            f"({e}); reloading the Transmit Security page (now warm) and retrying..."
+                        )
+                    else:
+                        self.logger.error(
+                            f"Password field never rendered after {max_password_attempts} attempts: {e}"
+                        )
+            if not password_field_ready:
+                return False
+
+            # Enter password
             self.logger.info("Entering password...")
-            self.browser_wrapper.wait_for_element(password_input_xpath, timeout=10000)
             self.browser_wrapper.clear_and_type(password_input_xpath, credentials.password)
             time.sleep(1)
 
@@ -903,6 +895,47 @@ class RogersAuthStrategy(AuthBaseStrategy):
         except Exception as e:
             self.logger.error(f"Error during login in Rogers: {str(e)}")
             return False
+
+    def _navigate_to_password_step(self, credentials: Credentials) -> None:
+        # Navega desde la URL de login a traves de Sign In + usuario + Continue y
+        # deja la pagina en el paso de password de Transmit Security. Es seguro
+        # llamarlo varias veces: cada invocacion re-navega a la URL de login desde
+        # cero, por lo que el reintento descarta cualquier estado previo.
+        self.browser_wrapper.goto(self.get_login_url())
+        time.sleep(3)
+
+        # Click on Sign In button (try multiple XPaths as the structure may vary)
+        sign_in_button_xpaths = [
+            '//*[@id="login"]/div[2]/div[3]/div/input',
+            '//*[@id="login"]/div[2]/div[4]/div/input',
+        ]
+        self.logger.info("Clicking Sign In button...")
+        for xpath in sign_in_button_xpaths:
+            try:
+                if self.browser_wrapper.is_element_visible(xpath, timeout=3000):
+                    self.logger.info(f"Sign In button found with xpath: {xpath}")
+                    self.browser_wrapper.click_element(xpath)
+                    break
+            except Exception:
+                continue
+        else:
+            raise Exception("Sign In button not found with any of the known XPaths")
+        time.sleep(3)
+
+        # Enter username/email
+        username_input_xpath = '//*[@id="ds-form-input-id-0"]'
+        self.logger.info(f"Entering username: {credentials.username}")
+        self.browser_wrapper.wait_for_element(username_input_xpath, timeout=10000)
+        self.browser_wrapper.clear_and_type(username_input_xpath, credentials.username)
+        time.sleep(1)
+
+        # Click Continue button
+        continue_button_xpath = (
+            "/html/body/app-root/div/div/div/div/div/div/div/div/ng-component/form/div[3]/button"
+        )
+        self.logger.info("Clicking Continue...")
+        self.browser_wrapper.click_element(continue_button_xpath)
+        time.sleep(5)
 
     def logout(self) -> bool:
         try:
