@@ -10,7 +10,12 @@ import requests
 from playwright_stealth import Stealth
 
 from mfa.infrastructure.verizon_captcha_solver import extract_text_from_image
-from web_scrapers.domain.entities.auth_strategies import AuthBaseStrategy, InvalidCredentialsError, MFACodeError
+from web_scrapers.domain.entities.auth_strategies import (
+    AuthBaseStrategy,
+    CaptchaEncounteredError,
+    InvalidCredentialsError,
+    MFACodeError,
+)
 from web_scrapers.domain.entities.session import Credentials
 from web_scrapers.domain.enums import CarrierPortalUrls
 from web_scrapers.infrastructure.playwright.browser_wrapper import BrowserWrapper
@@ -199,13 +204,21 @@ class BellAuthStrategy(AuthBaseStrategy):
                 self.logger.warning("2FA failed - interrupting login")
                 return False
 
-            return self.is_logged_in()
+            if self.is_logged_in():
+                return True
+            # Not logged in and no inline credential error: if Bell presented a reCAPTCHA
+            # we can't solve, surface that specific reason instead of a generic fail.
+            self._raise_if_captcha_present()
+            return False
 
         except InvalidCredentialsError as e:
             self.logger.error(f"Invalid credentials for Bell user {credentials.username}: {str(e)}")
             return False
         except MFACodeError as e:
             self.logger.error(f"MFA error during login in Bell: {str(e)}")
+            return False
+        except CaptchaEncounteredError as e:
+            self.logger.error(f"Login failed for Bell user {credentials.username}: {str(e)}")
             return False
         except Exception as e:
             self.logger.error(f"Error during login in Bell: {str(e)}")
@@ -230,6 +243,22 @@ class BellAuthStrategy(AuthBaseStrategy):
         except Exception:
             message = "incorrect email/password combination"
         raise InvalidCredentialsError(message)
+
+    def _raise_if_captcha_present(self) -> None:
+        """Raise CaptchaEncounteredError if a reCAPTCHA widget is on the login page.
+
+        Bell's Corporate Self Serve intermittently presents a reCAPTCHA v2 "I'm not a
+        robot" challenge (low reCAPTCHA score). We have no captcha-solving support, so the
+        login stalls on that page and never reaches 2FA — surfacing as a generic
+        "Login failed". Detecting the Google reCAPTCHA iframe lets us report a clear
+        reCAPTCHA reason. Only called after we've confirmed we're not logged in, so a
+        passive/invisible widget on a successful login never triggers a false positive.
+        """
+        recaptcha_iframe = "iframe[src*='recaptcha']"
+        if self.browser_wrapper.is_element_visible(recaptcha_iframe, timeout=3000, selector_type="css"):
+            raise CaptchaEncounteredError(
+                "reCAPTCHA challenge presented on Bell login (no captcha-solving support)"
+            )
 
     def logout(self) -> bool:
         try:
@@ -299,27 +328,33 @@ class BellAuthStrategy(AuthBaseStrategy):
             "/html/body/main/div/div[1]/div/div[2]/uxp-flow/div/identity-verification/div/div[2]/div/button[1]"
         )
 
+        # Human-like input on the 2FA screen too (see BellAuthStrategy.login): the
+        # identity-verification widget is still under reCAPTCHA Enterprise scoring, and
+        # crucially human_type fires the keydown/input events the uxp-flow form listens
+        # for to register the code. clear_and_type's locator.fill() only sets .value, so
+        # the form never "saw" the code and Bell bounced the user back to login.
         print("Selecting text message option...")
-        self.browser_wrapper.click_element(text_message_radio_xpath)
-        time.sleep(1)
+        self.browser_wrapper.human_click(text_message_radio_xpath)
+        self.browser_wrapper.human_pause(0.6, 1.4)
 
         print("Sending SMS code request...")
-        self.browser_wrapper.click_element(send_button_xpath)
-        time.sleep(2)
+        self.browser_wrapper.human_click(send_button_xpath)
+        self.browser_wrapper.human_pause(1.5, 2.5)
 
         print("Waiting for MFA code from SSE endpoint...")
         endpoint_url = f"{self.webhook_url}/api/v1/bell"
         sms_code = self._consume_mfa_sse_stream(endpoint_url, credentials.username)
 
         print(f"Entering code: {sms_code}")
-        self.browser_wrapper.click_element(verification_input_xpath)
-        self.browser_wrapper.clear_and_type(verification_input_xpath, sms_code)
-        time.sleep(1)
+        # human_type focuses via human_click and clears the field first, so it replaces
+        # the prior click_element + clear_and_type pair.
+        self.browser_wrapper.human_type(verification_input_xpath, sms_code)
+        self.browser_wrapper.human_pause(0.6, 1.4)
 
         print("Clicking Continue...")
         self.browser_wrapper.change_button_attribute(continue_button_xpath, "disabled", "false")
-        self.browser_wrapper.click_element(continue_button_xpath)
-        time.sleep(5)
+        self.browser_wrapper.human_click(continue_button_xpath)
+        self.browser_wrapper.human_pause(4.0, 6.0)
 
         if self.browser_wrapper.is_element_visible(verification_input_xpath, timeout=3000):
             print("2FA validation failed - field still visible")

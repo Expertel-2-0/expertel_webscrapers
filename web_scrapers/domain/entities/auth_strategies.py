@@ -28,6 +28,17 @@ class InvalidCredentialsError(Exception):
     pass
 
 
+class CaptchaEncounteredError(Exception):
+    """Exception raised when a login is blocked by a CAPTCHA challenge we can't solve.
+
+    We have no captcha-solving support yet, so when a reCAPTCHA widget is presented
+    the login cannot proceed. This signal lets callers report a specific
+    "failed by reCAPTCHA" reason instead of the opaque "Login failed for Carrier.X".
+    """
+
+    pass
+
+
 class AuthBaseStrategy(ABC):
     """Estrategia base abstracta para autenticación."""
 
