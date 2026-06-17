@@ -126,6 +126,8 @@ celerybeat.pid
 
 # Environments
 .env
+.env.*
+!.env.example
 .venv
 env/
 venv/
@@ -276,3 +278,7 @@ emails_output.txt
 # Downloaded scraper files
 downloads/
 .claude/*
+
+# Local prod-DB sync helper + its dumps (never commit prod data)
+scripts/sync_prod_db.sh
+backup_prod_*.sql
