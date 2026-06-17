@@ -316,25 +316,39 @@ class MonthlyReportsScraperStrategy(ScraperBaseStrategy):
                 return ScraperResult(False, error="Could not find files section")
 
             # Step 2: Download files
+            # Snapshot which files already have s3_key BEFORE downloading — some scrapers skip
+            # those files intentionally (they were uploaded in a prior run). Counting them as
+            # "failed to download" would produce false-negative job results.
+            all_cycle_files: list[BillingCycleFile] = billing_cycle.billing_cycle_files or []
+            already_with_s3 = sum(1 for f in all_cycle_files if f.s3_key)
+
             downloaded_files = self._download_files(files_section, config, billing_cycle)
 
             # Calculate expected files from billing_cycle
-            expected_files_count = len(billing_cycle.billing_cycle_files) if billing_cycle.billing_cycle_files else 0
+            expected_files_count = len(all_cycle_files)
             downloaded_count = len(downloaded_files)
+            # A file may be counted twice: already in S3 from a prior run AND re-downloaded
+            # this run (e.g. Rogers always re-fetches the BCR even when it already exists).
+            # Cap at the expected total so double-counting can't push failures negative.
+            effective_count = min(expected_files_count, downloaded_count + already_with_s3)
 
-            self.logger.info(f"Download phase complete: {downloaded_count}/{expected_files_count} files downloaded")
+            self.logger.info(
+                f"Download phase complete: {downloaded_count}/{expected_files_count} files downloaded"
+                f" ({already_with_s3} already in S3 from prior run)"
+            )
 
             # Step 3: Upload files with individual tracking
             upload_tracking = self._upload_files_with_individual_tracking(downloaded_files, config, billing_cycle)
 
-            # Step 4: Determine final success based on download and upload results
-            download_failures = expected_files_count - downloaded_count
+            # Step 4: Determine final success based on download and upload results.
+            # Files that were already in S3 (skipped by the scraper) are not failures.
+            download_failures = expected_files_count - effective_count
             upload_failures = upload_tracking["failed_uploads"]
             total_failures = download_failures + upload_failures
 
             # Build detailed result message
             if total_failures == 0:
-                # Perfect success: all files downloaded and uploaded
+                # Perfect success: all files downloaded (or already in S3) and uploaded
                 message = f"SUCCESS: All {expected_files_count} files downloaded and uploaded"
                 self.logger.info(message)
                 self._cleanup_job_directory()
