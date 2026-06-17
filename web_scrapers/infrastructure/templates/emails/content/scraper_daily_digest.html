@@ -36,6 +36,7 @@
 .action-line .lbl { font-weight: 800; text-transform: uppercase; font-size: 10.5px; letter-spacing: 0.5px; display: block; margin-bottom: 2px; color: #555; }
 .since { font-size: 11.5px; color: #6b6b6b; font-weight: 600; margin: 0 0 10px 0; padding: 6px 10px; background: #F7F7F7; border-radius: 6px; border: 1px solid #ECECEC; }
 .since .new-txt { color: #B3261E; font-weight: 800; }
+.since .ongoing { color: #757575; }
 
 /* Chips */
 .chip { display: inline-block; padding: 3px 9px; border-radius: 999px; font-size: 10.5px; font-weight: 800; letter-spacing: 0.4px; text-transform: uppercase; white-space: nowrap; margin-right: 4px; }
@@ -44,6 +45,12 @@
 .chip-noop { background:#ECF6EE; color:#2E7D32; border:1px solid #C3E3C9; }
 .chip-count { background:#EEE; color:#444; border:1px solid #DDD; }
 .chip-new { background:#B3261E; color:#FFFFFF !important; border:1px solid #B3261E; }
+/* Error-class chips */
+.chip-site { background:#FDECEA; color:#B3261E; border:1px solid #F5C4BC; }
+.chip-login { background:#FDECEA; color:#B3261E; border:1px solid #F5C4BC; }
+.chip-download { background:#FFF1E0; color:#B25A00; border:1px solid #FFD8A8; }
+.chip-infra { background:#F3E9FB; color:#6A1B9A; border:1px solid #E0C8F2; }
+.chip-creds { background:#FFF4E5; color:#B25A00; border:1px solid #FFD8A8; }
 
 /* Data table */
 .data-table { width: 100%; border-collapse: collapse; font-size: 12.5px; margin: 0 0 4px 0; }
@@ -99,7 +106,7 @@ details.log summary { font-size:11.5px; color:#757575; font-weight:700; cursor:p
       <td width="48%" class="lane-card lane-dev">
         <p class="lane-title">Dev fix</p>
         <p class="lane-count">{{ dev_job_count }} <small>job{{ dev_job_count|pluralize }}</small></p>
-        <p class="lane-sub">Carrier sites changed or logins down{% if zombie_count %} + {{ zombie_count }} stuck job{{ zombie_count|pluralize }}{% endif %}. We fix the code.</p>
+        <p class="lane-sub"><strong>{{ dev_flow_count }} scraper flow{{ dev_flow_count|pluralize }}</strong> broken{% if zombie_count %} + <strong>{{ zombie_count }} stuck job{{ zombie_count|pluralize }}</strong>{% endif %}. Carrier sites changed or logins down. We fix the code.</p>
       </td>
       <td width="4%"></td>
       <td width="48%" class="lane-card lane-support">
@@ -111,75 +118,114 @@ details.log summary { font-size:11.5px; color:#757575; font-weight:700; cursor:p
   </table>
 
   <!-- ───────── DEVELOPER ACTION ───────── -->
-  {% if dev_cells %}
+  {% if dev_groups or zombies %}
   <p class="section-header sh-dev">Developer action — fix the scraper</p>
-  <p class="section-note">Carrier site changed, login down, or a download/processing step failed. These do <strong>not</strong> resolve on their own. <span style="color:#B3261E;font-weight:700;">NEW</span> = a flow that was healthy until today (grab first).</p>
+  <p class="section-note">A carrier changed its website, or a whole carrier's login is down. These do <strong>not</strong> resolve on their own — they need a code or selector fix. <span style="color:#B3261E;font-weight:700;">NEW</span> = a flow that was healthy until today (grab first).</p>
 
-  {% for cell in dev_cells %}
+  {% for group in dev_groups %}
   <div class="issue">
     <div class="issue-head dev">
-      <p class="issue-title">{{ cell.carrier }} &mdash; {{ cell.job_type_label }}</p>
-      {% if cell.is_new %}<span class="chip chip-new">New today</span>{% endif %}
-      <span class="chip chip-dev">{{ cell.error_label }}</span>
-      <span class="chip chip-count">{{ cell.error_count }} job{{ cell.error_count|pluralize }} &middot; {{ cell.clients_affected }} client{{ cell.clients_affected|pluralize }}</span>
+      <p class="issue-title">{{ group.title }}</p>
+      {% if group.is_new %}<span class="chip chip-new">New today</span>{% endif %}
+      <span class="chip {{ group.chip_class }}">{{ group.error_label }}</span>
+      <span class="chip chip-count">{{ group.total_jobs }} job{{ group.total_jobs|pluralize }} &middot; {{ group.flow_count }} flow{{ group.flow_count|pluralize }}</span>
     </div>
     <div class="issue-body">
       <p class="since">
-        {% if cell.is_new %}<span class="new-txt">&#128308; NEW — broke today.</span> Was healthy until now; the carrier likely changed its site/login today. Grab this first.
-        {% else %}&#9201; Broken {{ cell.broken_label }}.{% endif %}
+        {% if group.is_new %}<span class="new-txt">&#128308; NEW — broke today.</span> These flows were healthy until now ({{ group.health_phrase }} over 7 days). A healthy flow breaking today = the carrier changed the page today. <strong>Grab this first.</strong>
+        {% else %}<span class="ongoing">&#9201; Ongoing — {{ group.broken_phrase }}. Not new; retries still firing.</span>{% endif %}
       </p>
-      <p class="diagnosis">Login may work, but the page element or download step failed — the carrier changed the page or the scraper selector is stale.</p>
-      <div class="action-line"><span class="lbl">Do this</span>Capture the current page (DOM/screenshot), update the selector or step, and pause retries on this cell until the fix lands.</div>
+      {% if group.error_label == "Portal login break" %}
+        {% if group.is_fleet_wide %}
+      <p class="diagnosis"><strong>Every</strong> account on these carriers fails login at the same time (7-day success: {{ group.health_phrase }}). All accounts going down at once points to the carrier changing its login page / adding a bot or MFA step — <strong>not</strong> bad customer passwords. One fix per carrier clears all affected accounts.</p>
+      <div class="action-line"><span class="lbl">Do this</span>Run each login headful against one affected account, capture what the portal now shows, update the auth step. Pause retries until the fix lands.</div>
+        {% else %}
+      <p class="diagnosis">Login is failing across these flows (7-day success: {{ group.health_phrase }}). A flow that is still mostly succeeding points to isolated bad passwords on a few accounts; a flow near zero points to the carrier changing its login / adding a bot or MFA step. These don't share one cause — split them when fixing.</p>
+      <div class="action-line"><span class="lbl">Do this</span>Reproduce one failing login headful per flow. If only some accounts fail on an otherwise-healthy flow, route those to Support; if a whole flow is down, update the auth step and pause retries.</div>
+        {% endif %}
+      {% elif group.error_label == "Carrier site change" or group.error_label == "Timeout / site change" %}
+      <p class="diagnosis">Login works, but the page element the scraper expects (the download/files area) is gone — the carrier redesigned the page, so our selector no longer matches.</p>
+      <div class="action-line"><span class="lbl">Do this</span>Capture the current page DOM/screenshot, update the locators (prefer role/label over absolute XPath).{% if group.flow_count > 1 %} Same root cause across all {{ group.flow_count }} flows.{% endif %}</div>
+      {% else %}
+      <p class="diagnosis">Login works, but a download / file-processing step is failing — likely a stale selector or a changed file layout on the carrier portal.</p>
+      <div class="action-line"><span class="lbl">Do this</span>Reproduce headful, capture the failing step, and update the selector or handling. Pause retries on these flows until the fix lands.</div>
+      {% endif %}
       <table class="data-table">
-        <tr><th>Job</th><th>Client</th><th>Account</th><th>Type</th><th>Failed</th></tr>
-        {% for j in cell.jobs %}
+        <tr><th>Job</th><th>Client</th><th>Account</th><th>Carrier / Type</th><th>Failed</th></tr>
+        {% for cell in group.cells %}{% for j in cell.jobs %}
         <tr>
           <td class="mono">#{{ j.job_id }}</td>
           <td>{{ j.client_name }}</td>
           <td class="mono">{{ j.account_number }}</td>
-          <td>{{ cell.job_type_label }}</td>
+          <td>{{ cell.carrier }} / {{ cell.job_type_label }}</td>
           <td class="mono">{{ j.completed_at|date:"m-d H:i" }}</td>
         </tr>
-        {% endfor %}
+        {% endfor %}{% endfor %}
       </table>
-      {% if cell.worst_log_tail %}
-      <details class="log"><summary>Log tail</summary><pre class="error-block">{{ cell.worst_log_tail }}</pre></details>
+      {% if group.sample_log %}
+      <details class="log"><summary>Log tail</summary><pre class="error-block">{{ group.sample_log }}</pre></details>
       {% endif %}
     </div>
   </div>
   {% endfor %}
+
+  {% if zombies %}
+  <div class="issue">
+    <div class="issue-head dev">
+      <p class="issue-title">{{ zombie_count }} stuck job{{ zombie_count|pluralize }} (&ldquo;zombies&rdquo;) — processor crashed mid-run</p>
+      <span class="chip chip-infra">Infrastructure</span>
+      <span class="chip chip-count">{{ zombie_count }} job{{ zombie_count|pluralize }}</span>
+    </div>
+    <div class="issue-body">
+      <p class="since"><span class="ongoing">&#9201; {% if zombie_oldest %}Accumulating since {{ zombie_oldest|date:"Y-m-d" }} — {% endif %}not new. Needs one-time cleanup + a watchdog so it stops growing.</span></p>
+      <p class="diagnosis">{{ zombie_count }} job{{ zombie_count|pluralize }} are frozen in <span class="mono">in_progress</span> / <span class="mono">running</span> and never wrote a final status — the runner died mid-job and left them claimed. They will never finish or alert on their own.</p>
+      <div class="action-line"><span class="lbl">Do this</span>Add a watchdog: reset jobs stuck &gt; X hours back to pending (or error after retries), and clean up the existing {{ zombie_count }}.</div>
+      <table class="data-table">
+        <tr><th>Carrier</th><th>Type</th><th>Stuck jobs</th><th>Oldest</th></tr>
+        {% for zg in zombie_groups %}
+        <tr>
+          <td>{{ zg.carrier }}</td>
+          <td>{{ zg.job_type_label }}</td>
+          <td>{{ zg.count }}</td>
+          <td class="mono">{% if zg.oldest %}{{ zg.oldest|date:"Y-m-d" }}{% else %}—{% endif %}</td>
+        </tr>
+        {% endfor %}
+      </table>
+    </div>
+  </div>
+  {% endif %}
   {% endif %}
 
   <!-- ───────── SUPPORT ACTION ───────── -->
-  {% if support_cells %}
+  {% if support_groups %}
   <p class="section-header sh-support">Support action — contact the customer</p>
   <p class="section-note">Individual login failures on a carrier that is otherwise healthy. One account fails while the rest work &rarr; the customer changed or expired their portal password. No code fix — Support gets fresh credentials.</p>
 
-  {% for cell in support_cells %}
+  {% for group in support_groups %}
   <div class="issue">
     <div class="issue-head support">
-      <p class="issue-title">{{ cell.carrier }} &mdash; {{ cell.job_type_label }}</p>
-      <span class="chip chip-support">{{ cell.error_label }}</span>
-      <span class="chip chip-count">{{ cell.accounts_affected }} acct{{ cell.accounts_affected|pluralize }} &middot; {{ cell.clients_affected }} client{{ cell.clients_affected|pluralize }}</span>
+      <p class="issue-title">{{ group.title }}</p>
+      <span class="chip {{ group.chip_class }}">{{ group.error_label }}</span>
+      <span class="chip chip-count">{{ group.total_accounts }} acct{{ group.total_accounts|pluralize }} &middot; {{ group.total_clients }} client{{ group.total_clients|pluralize }}</span>
     </div>
     <div class="issue-body">
-      <p class="since">&#9201; Failing {{ cell.broken_label }} — retries exhausted. The longer it fails, the longer the customer's data is stale.</p>
-      <p class="diagnosis">{{ cell.carrier }} is healthy overall, so these logins are isolated to specific customers — their stored portal password no longer works.</p>
-      <div class="action-line"><span class="lbl">Do this</span>Support contacts each customer to re-enter their {{ cell.carrier }} portal credentials. Retries are paused so we stop hammering the portal with a dead password.</div>
+      <p class="since"><span class="ongoing">&#9201; {{ group.broken_phrase }} — retries exhausted. The longer it fails, the longer the customer's data is stale.</span></p>
+      <p class="diagnosis">{{ group.carriers_phrase }} is healthy overall ({{ group.health_phrase }}), so these are isolated to specific customers — their stored portal password no longer works. Each fails identically after retries.</p>
+      <div class="action-line"><span class="lbl">Do this</span>Support contacts each customer to re-enter their {{ group.carriers_phrase }} portal credentials in iQ. Retries are paused so we stop hammering the portal with a dead password.</div>
       <table class="data-table">
-        <tr><th>Job</th><th>Client</th><th>Account</th><th>Type</th><th>Failed</th></tr>
-        {% for j in cell.jobs %}
+        <tr><th>Job</th><th>Client</th><th>Account</th><th>Carrier / Type</th><th>Failed</th></tr>
+        {% for cell in group.cells %}{% for j in cell.jobs %}
         <tr>
           <td class="mono">#{{ j.job_id }}</td>
           <td>{{ j.client_name }}</td>
           <td class="mono">{{ j.account_number }}</td>
-          <td>{{ cell.job_type_label }}</td>
+          <td>{{ cell.carrier }} / {{ cell.job_type_label }}</td>
           <td class="mono">{{ j.completed_at|date:"m-d H:i" }}</td>
         </tr>
-        {% endfor %}
+        {% endfor %}{% endfor %}
       </table>
-      {% if cell.worst_log_tail %}
-      <details class="log"><summary>Log tail</summary><pre class="error-block">{{ cell.worst_log_tail }}</pre></details>
+      {% if group.sample_log %}
+      <details class="log"><summary>Log tail</summary><pre class="error-block">{{ group.sample_log }}</pre></details>
       {% endif %}
     </div>
   </div>
@@ -187,16 +233,16 @@ details.log summary { font-size:11.5px; color:#757575; font-weight:700; cursor:p
   {% endif %}
 
   <!-- ───────── NO ACTION (only when present) ───────── -->
-  {% if noaction_cells or silent_gaps %}
+  {% if noaction_groups or silent_gaps %}
   <p class="section-header sh-noop">No action — not recoverable / investigate</p>
   <p class="section-note">Jobs that can't succeed (deleted client or purged statement) — orchestration should stop scheduling them — plus monthly successes whose files aren't fully processed yet (verify, file status may update async).</p>
 
-  {% for cell in noaction_cells %}
+  {% for group in noaction_groups %}
   <div class="issue">
     <div class="issue-head noop">
-      <p class="issue-title">{{ cell.carrier }} &mdash; {{ cell.job_type_label }}</p>
-      <span class="chip chip-noop">{{ cell.error_label }}</span>
-      <span class="chip chip-count">{{ cell.error_count }} job{{ cell.error_count|pluralize }}</span>
+      <p class="issue-title">{{ group.title }}</p>
+      <span class="chip chip-noop">{{ group.error_label }}</span>
+      <span class="chip chip-count">{{ group.total_jobs }} job{{ group.total_jobs|pluralize }} &middot; {{ group.flow_count }} flow{{ group.flow_count|pluralize }}</span>
     </div>
     <div class="issue-body">
       <p class="diagnosis">Not recoverable — the client/workspace was deleted or the statement is no longer retained by the carrier. Cancel these jobs upstream.</p>
@@ -240,25 +286,6 @@ details.log summary { font-size:11.5px; color:#757575; font-weight:700; cursor:p
     <td>{{ h.success }}</td>
     <td>{{ h.error }}</td>
     <td>{% if h.avg_retries_on_success is not None %}{{ h.avg_retries_on_success }}{% else %}—{% endif %}</td>
-  </tr>
-  {% endfor %}
-</table>
-{% endif %}
-
-<!-- Zombies summary -->
-{% if zombies %}
-<p class="section-header sh-ref">Stuck jobs (zombies) — {{ zombie_count }}</p>
-<p class="section-note">Frozen in <span class="mono">in_progress</span>/<span class="mono">running</span> — the processor crashed mid-run. Needs a watchdog to reset and a one-time cleanup.</p>
-<table class="data-table">
-  <tr><th>Job</th><th>Carrier</th><th>Type</th><th>Status</th><th>Account</th><th>Since</th></tr>
-  {% for z in zombies %}
-  <tr>
-    <td class="mono">#{{ z.job_id }}</td>
-    <td>{{ z.carrier }}</td>
-    <td>{{ z.job_type_label }}</td>
-    <td class="mono">{{ z.status }}</td>
-    <td class="mono">{{ z.account_number }}</td>
-    <td class="mono">{% if z.available_at %}{{ z.available_at|date:"Y-m-d H:i" }}{% else %}—{% endif %}</td>
   </tr>
   {% endfor %}
 </table>

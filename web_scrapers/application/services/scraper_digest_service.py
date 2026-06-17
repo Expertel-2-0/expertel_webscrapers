@@ -38,6 +38,8 @@ from web_scrapers.domain.digest import (
     cell_error_label,
     classify_cell_lane,
     classify_error_log,
+    group_cells_by_root_cause,
+    group_zombies,
     job_type_label,
 )
 from web_scrapers.infrastructure.django.enums import (
@@ -117,6 +119,15 @@ class ScraperDigestService:
         support_cells = [c for c in errors_by_cell if c.lane == Lane.SUPPORT]
         noaction_cells = [c for c in errors_by_cell if c.lane == Lane.NOACTION]
 
+        # Consolidate each lane's cells into root-cause groups (one issue card
+        # per shared error class) and aggregate zombies by (carrier, type).
+        dev_groups = group_cells_by_root_cause(dev_cells)
+        support_groups = group_cells_by_root_cause(support_cells)
+        noaction_groups = group_cells_by_root_cause(noaction_cells)
+        zombie_groups = group_zombies(zombies)
+        zombie_available = [z.available_at for z in zombies if z.available_at is not None]
+        zombie_oldest = min(zombie_available) if zombie_available else None
+
         error_count = sum(c.error_count for c in errors_by_cell)
         high_error_count = sum(c.high_count for c in errors_by_cell)
         low_error_count = sum(c.low_count for c in errors_by_cell)
@@ -134,7 +145,7 @@ class ScraperDigestService:
         success_24h = global_counts["success"] or 0
         success_pct: Optional[float] = round(100.0 * success_24h / total_24h, 1) if total_24h > 0 else None
 
-        alerts_url = f"{settings.FRONTEND_URL}/scraper-jobs"
+        alerts_url = f"{settings.FRONTEND_URL}/admin/dashboard"
 
         return DigestData(
             report_date=self._now.date(),
@@ -157,6 +168,12 @@ class ScraperDigestService:
             dev_job_count=sum(c.error_count for c in dev_cells),
             support_job_count=sum(c.error_count for c in support_cells),
             noaction_job_count=sum(c.error_count for c in noaction_cells),
+            dev_groups=dev_groups,
+            support_groups=support_groups,
+            noaction_groups=noaction_groups,
+            zombie_groups=zombie_groups,
+            zombie_oldest=zombie_oldest,
+            dev_flow_count=len(dev_cells),
         )
 
     def get_errors_by_cell(
@@ -285,11 +302,7 @@ class ScraperDigestService:
             # NEW: the cell was healthy within the last ~48h but has no success
             # inside the 24h error window — i.e. a previously-working flow that
             # broke today (carrier likely changed its site/login today).
-            is_new = (
-                last_success is not None
-                and last_success >= recently_healthy_cutoff
-                and last_success < since
-            )
+            is_new = last_success is not None and last_success >= recently_healthy_cutoff and last_success < since
 
             summaries.append(
                 CellErrorSummary(
@@ -308,6 +321,7 @@ class ScraperDigestService:
                     error_label=error_label,
                     days_broken=days_broken,
                     is_new=is_new,
+                    success_pct=success_pct,
                 )
             )
 

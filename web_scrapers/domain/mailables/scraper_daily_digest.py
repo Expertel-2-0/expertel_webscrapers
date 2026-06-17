@@ -107,6 +107,13 @@ class ScraperDailyDigestMailable(Mailable):
             "dev_job_count": d.dev_job_count,
             "support_job_count": d.support_job_count,
             "noaction_job_count": d.noaction_job_count,
+            # Root-cause grouping (v2 redesign)
+            "dev_groups": d.dev_groups,
+            "support_groups": d.support_groups,
+            "noaction_groups": d.noaction_groups,
+            "zombie_groups": d.zombie_groups,
+            "zombie_oldest": d.zombie_oldest,
+            "dev_flow_count": d.dev_flow_count,
         }
 
     def get_text_content(self) -> str:
@@ -155,9 +162,7 @@ class ScraperDailyDigestMailable(Mailable):
                 )
                 for j in cell.jobs:
                     when = j.completed_at.strftime("%Y-%m-%d %H:%M") if j.completed_at else "unknown"
-                    lines.append(
-                        f"      job#{j.job_id} — {j.client_name} / acct {j.account_number} — failed {when}"
-                    )
+                    lines.append(f"      job#{j.job_id} — {j.client_name} / acct {j.account_number} — failed {when}")
             lines.append("")
 
         # Developer action — fix the scraper

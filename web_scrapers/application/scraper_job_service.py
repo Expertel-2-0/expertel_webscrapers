@@ -511,7 +511,7 @@ class ScraperJobService:
 
         django_job.save()
 
-        if result["final_status"] == ScraperJobStatus.ERROR:
+        if result["final_status"] == ScraperJobStatus.ERROR and settings.SCRAPER_PER_JOB_ALERTS_ENABLED:
             self._send_error_alert(django_job)
 
         return result
