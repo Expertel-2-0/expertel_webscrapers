@@ -162,9 +162,9 @@ SCRAPER_ALERT_EMAILS = [
 ]
 
 # Per-job failure alert toggle.  The daily digest (send_scraper_digest) replaces
-# these individual emails; set to False to silence them once the digest is live.
-# Default True preserves the current behaviour.
-SCRAPER_PER_JOB_ALERTS_ENABLED = os.environ.get("SCRAPER_PER_JOB_ALERTS_ENABLED", "True") == "True"
+# these individual emails.  Default False now that the digest is live; set the
+# env var to True to re-enable per-job failure emails in a given environment.
+SCRAPER_PER_JOB_ALERTS_ENABLED = os.environ.get("SCRAPER_PER_JOB_ALERTS_ENABLED", "False") == "True"
 
 # Recipients for the per-run scraper execution log digest
 SCRAPER_EXECUTION_LOG_EMAILS = [
