@@ -21,8 +21,18 @@ def sse_event(event: str, data: dict) -> dict:
     return {"event": event, "data": json.dumps(data)}
 
 
-def extract_code_from_email(content: str) -> str | None:
-    """Extract a 6-8 digit code from email content."""
+def extract_code_from_email(content: str, carrier: str | None = None) -> str | None:
+    """Extract a verification code from email content.
+
+    Bell's Business Portal sends an 8-char ALPHANUMERIC code (e.g. XNW8NKYK) introduced by
+    "use this code / utiliser le code", so for Bell we try that anchored pattern first. Every
+    other carrier (att, rogers, telus, tmobile) keeps the original digit-only extraction
+    unchanged, so this stays scoped to Bell.
+    """
+    if carrier == "bell":
+        match = re.search(r"(?:use this code|utiliser le code)\s+([A-Za-z0-9]{6,8})\b", content, re.IGNORECASE)
+        if match:
+            return match.group(1)
     match = re.search(r"\b(\d{6,8})\b", content)
     return match.group(1) if match else None
 
@@ -75,7 +85,7 @@ async def code_extractor(
 
         if messages and len(messages) > 0:
             first_message = messages[0]
-            code = extract_code_from_email(first_message.body.content)
+            code = extract_code_from_email(first_message.body.content, carrier)
             if code:
                 break
         await asyncio.sleep(POLL_INTERVAL)
@@ -106,7 +116,11 @@ async def get_att_code(email_alias: str = Query(...)):
 @router.get("/bell")
 async def get_bell_code(email_alias: str = Query(...)):
     email_alias = "notifications@expertel.com"
-    carrier_from_email = "noreply@bell.ca"
+    # Bell has two portals that each email the OTP from a different sender:
+    #   - Corporate Self Serve (uxp-flow): noreply@bell.ca, numeric code
+    #   - Enterprise Centre -> Business Portal: businessportal_portailaffaires@bell.ca, alphanumeric code
+    # Both flows hit this endpoint, so accept either sender.
+    carrier_from_email = ["noreply@bell.ca", "businessportal_portailaffaires@bell.ca"]
     return EventSourceResponse(code_extractor("bell", email_alias, carrier_from_email))
 
 

@@ -58,8 +58,15 @@ class BellEnterpriseAuthStrategy(AuthBaseStrategy):
             self.browser_wrapper.wait_for_page_load()
             self.browser_wrapper.human_pause(8.0, 11.0)
 
+            if not self._handle_enterprise_2fa_if_present(credentials):
+                self.logger.warning("Enterprise 2FA failed - interrupting login")
+                return False
+
             return self.is_logged_in()
 
+        except MFACodeError as e:
+            self.logger.error(f"MFA error during Enterprise Centre login: {str(e)}")
+            return False
         except Exception as e:
             self.logger.error(f"Error during Enterprise Centre login: {str(e)}")
             return False
@@ -150,13 +157,66 @@ class BellEnterpriseAuthStrategy(AuthBaseStrategy):
     def get_login_button_xpath(self) -> str:
         return "//*[@id='loginBtn']"
 
-    # TODO: Implementar _handle_2fa_if_present si Bell Enterprise Centre requiere 2FA
-    # Pasos pendientes:
-    # 1. Identificar si el portal requiere 2FA y cómo detectarlo
-    # 2. Identificar los XPaths de los elementos de 2FA
-    # 3. Usar el método heredado _consume_mfa_sse_stream:
-    #     endpoint_url = f"{self.webhook_url}/api/v1/bell"
-    #     code = self._consume_mfa_sse_stream(endpoint_url, credentials.username)
+    def _handle_enterprise_2fa_if_present(self, credentials: Credentials) -> bool:
+        # Bell Business Portal (businessportal.bell.ca, reached via enterprisecentre.bell.ca)
+        # now shows an OTP-by-email screen ("We need to verify your identity") after login.
+        # The code is auto-sent to the account email, so unlike BellAuthStrategy's uxp-flow
+        # SMS screen there is no method radio / Send button — we just wait for the code,
+        # type it, and click Continue. The code arrives in the same mailbox the existing
+        # /api/v1/bell endpoint polls; the Business Portal OTP is sent from
+        # businessportal_portailaffaires@bell.ca with an alphanumeric code (handled there).
+        try:
+            page = self.browser_wrapper.page
+            # SAML redirects (enterprisecentre -> businessportal -> GetAccess OTP) can take
+            # a while; wait for the OTP screen URL before probing for the input.
+            try:
+                page.wait_for_url(lambda url: "IG.OTP" in url, timeout=45000)
+            except Exception:
+                self.logger.info(f"[ENT-2FA] OTP url not reached in 45s; current url={page.url}")
+            # The OTP page carries TWO forms — a hidden residual login form and the visible
+            # verification form — so the code input (ng-model="password") appears duplicated
+            # and the first match is the hidden one (is_visible -> False). We target the
+            # *visible* input via a CSS :visible filter. The field `name` is dynamic
+            # (message0/1/2...), hence keying off ng-model; #continueButton belongs only to
+            # the visible form.
+            verification_input_css = "input[ng-model='password']:visible"
+            continue_button_xpath = "//*[@id='continueButton']"
+            if self.browser_wrapper.is_element_visible(verification_input_css, timeout=40000, selector_type="css"):
+                print("Enterprise 2FA detected. Starting verification process...")
+                return self._process_enterprise_2fa(verification_input_css, continue_button_xpath, credentials)
+            else:
+                print("No Enterprise 2FA detected")
+                return True
+
+        except MFACodeError:
+            raise
+        except Exception as e:
+            print(f"Error verifying Enterprise 2FA: {str(e)}")
+            return True
+
+    def _process_enterprise_2fa(
+        self, verification_input_css: str, continue_button_xpath: str, credentials: Credentials
+    ) -> bool:
+        print("Waiting for MFA code from SSE endpoint...")
+        endpoint_url = f"{self.webhook_url}/api/v1/bell"
+        code = self._consume_mfa_sse_stream(endpoint_url, credentials.username)
+
+        # human_type fires the keydown/input events the Angular form (ng-model) needs to
+        # register the code — fill() would not update the model reliably.
+        print(f"Entering code: {code}")
+        self.browser_wrapper.human_type(verification_input_css, code, selector_type="css")
+        self.browser_wrapper.human_pause(0.6, 1.4)
+
+        print("Clicking Continue...")
+        self.browser_wrapper.human_click(continue_button_xpath)
+        self.browser_wrapper.human_pause(4.0, 6.0)
+
+        if self.browser_wrapper.is_element_visible(verification_input_css, timeout=3000, selector_type="css"):
+            print("Enterprise 2FA validation failed - field still visible")
+            return False
+
+        print("Enterprise 2FA validation successful")
+        return True
 
 
 class BellAuthStrategy(AuthBaseStrategy):
