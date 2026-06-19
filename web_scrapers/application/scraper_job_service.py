@@ -511,8 +511,11 @@ class ScraperJobService:
 
         django_job.save()
 
-        if result["final_status"] == ScraperJobStatus.ERROR and settings.SCRAPER_PER_JOB_ALERTS_ENABLED:
-            self._send_error_alert(django_job)
+        # Per-job failure alert disabled: the daily digest (send_scraper_digest)
+        # already covers per-job failures, so these individual emails are no longer used.
+        # Re-enable by uncommenting (controlled by SCRAPER_PER_JOB_ALERTS_ENABLED).
+        # if result["final_status"] == ScraperJobStatus.ERROR and settings.SCRAPER_PER_JOB_ALERTS_ENABLED:
+        #     self._send_error_alert(django_job)
 
         return result
 

@@ -273,6 +273,7 @@ EMAIL_USE_TLS=$(get_ssm_parameter "/$APP_NAME/$ENVIRONMENT/email/use-tls")
 EMAIL_FROM_ADDRESS=$(get_ssm_parameter "/$APP_NAME/$ENVIRONMENT/email/from-address")
 SCRAPER_ALERT_EMAILS=$(get_ssm_parameter "/$APP_NAME/$ENVIRONMENT/email/alert-recipients")
 SCRAPER_EXECUTION_LOG_EMAILS=$(get_ssm_parameter "/$APP_NAME/$ENVIRONMENT/email/execution-log-recipients")
+SCRAPER_PER_JOB_ALERTS_ENABLED=$(get_ssm_parameter "/$APP_NAME/$ENVIRONMENT/email/per-job-alerts-enabled")
 FRONTEND_URL=$(get_ssm_parameter "/$APP_NAME/$ENVIRONMENT/config/frontend-url")
 
 # Set scraper user password (same as noVNC for convenience)
@@ -327,6 +328,7 @@ EMAIL_USE_TLS=$EMAIL_USE_TLS
 EMAIL_FROM_ADDRESS=$EMAIL_FROM_ADDRESS
 SCRAPER_ALERT_EMAILS=$SCRAPER_ALERT_EMAILS
 SCRAPER_EXECUTION_LOG_EMAILS=$SCRAPER_EXECUTION_LOG_EMAILS
+SCRAPER_PER_JOB_ALERTS_ENABLED=$SCRAPER_PER_JOB_ALERTS_ENABLED
 FRONTEND_URL=$FRONTEND_URL
 
 # Environment

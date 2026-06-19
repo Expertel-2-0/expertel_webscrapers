@@ -169,7 +169,7 @@ SCRAPER_PER_JOB_ALERTS_ENABLED = os.environ.get("SCRAPER_PER_JOB_ALERTS_ENABLED"
 # Recipients for the per-run scraper execution log digest
 SCRAPER_EXECUTION_LOG_EMAILS = [
     email.strip()
-    for email in os.environ.get("SCRAPER_EXECUTION_LOG_EMAILS", "alejandro@expertel.com").split(",")
+    for email in os.environ.get("SCRAPER_EXECUTION_LOG_EMAILS", "cesar@expertel.com").split(",")
     if email.strip()
 ]
 

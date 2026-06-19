@@ -137,7 +137,16 @@ resource "aws_ssm_parameter" "scraper_execution_log_emails" {
   name        = "/${var.app_name}/${var.environment}/email/execution-log-recipients"
   description = "Comma-separated recipients for scraper execution log summaries"
   type        = "String"
-  value       = "alejandro@expertel.com"
+  value       = "cesar@expertel.com"
+
+  tags = local.common_tags
+}
+
+resource "aws_ssm_parameter" "scraper_per_job_alerts_enabled" {
+  name        = "/${var.app_name}/${var.environment}/email/per-job-alerts-enabled"
+  description = "Toggle per-job scraper failure alert emails (the daily digest covers these; default off)"
+  type        = "String"
+  value       = "False"
 
   tags = local.common_tags
 }
