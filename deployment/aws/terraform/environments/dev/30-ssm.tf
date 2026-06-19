@@ -137,7 +137,7 @@ resource "aws_ssm_parameter" "scraper_execution_log_emails" {
   name        = "/${var.app_name}/${var.environment}/email/execution-log-recipients"
   description = "Comma-separated recipients for scraper execution log summaries"
   type        = "String"
-  value       = "alejandro@expertel.com"
+  value       = "cesar@expertel.com"
 
   tags = local.common_tags
 }
