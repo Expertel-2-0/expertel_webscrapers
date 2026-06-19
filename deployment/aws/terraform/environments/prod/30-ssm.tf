@@ -142,6 +142,15 @@ resource "aws_ssm_parameter" "scraper_execution_log_emails" {
   tags = local.common_tags
 }
 
+resource "aws_ssm_parameter" "scraper_per_job_alerts_enabled" {
+  name        = "/${var.app_name}/${var.environment}/email/per-job-alerts-enabled"
+  description = "Toggle per-job scraper failure alert emails (the daily digest covers these; default off)"
+  type        = "String"
+  value       = "False"
+
+  tags = local.common_tags
+}
+
 resource "aws_ssm_parameter" "frontend_url" {
   name        = "/${var.app_name}/${var.environment}/config/frontend-url"
   description = "Frontend URL for building links in emails"
