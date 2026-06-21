@@ -335,17 +335,20 @@ def main():
 
         finished_at = datetime.now()
         job_results = processor.job_results if processor else []
-        # Flush handlers so the attachment includes everything written so far.
+        # Flush handlers so the run log file is complete on disk.
         for handler in logging.getLogger().handlers:
             handler.flush()
-        _send_execution_log_email(
-            log_path=log_path,
-            started_at=started_at,
-            finished_at=finished_at,
-            job_results=job_results,
-            fatal_error=fatal_error,
-            logger=logger,
-        )
+        # Per-run execution-log email disabled: the daily digest (send_scraper_digest)
+        # already covers per-run/per-job failures, so this email is no longer sent.
+        # Re-enable by uncommenting the call below.
+        # _send_execution_log_email(
+        #     log_path=log_path,
+        #     started_at=started_at,
+        #     finished_at=finished_at,
+        #     job_results=job_results,
+        #     fatal_error=fatal_error,
+        #     logger=logger,
+        # )
 
 
 if __name__ == "__main__":
