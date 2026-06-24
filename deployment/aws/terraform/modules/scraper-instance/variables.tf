@@ -113,6 +113,12 @@ variable "scraper_timer_calendar" {
   default     = "*:0/10"
 }
 
+variable "digest_timer_calendar" {
+  description = "systemd OnCalendar for the daily scraper health digest, in the instance's local timezone (e.g. '*-*-* 12:00:00' = noon)"
+  type        = string
+  default     = "*-*-* 12:00:00"
+}
+
 variable "log_retention_days" {
   description = "CloudWatch log retention in days"
   type        = number

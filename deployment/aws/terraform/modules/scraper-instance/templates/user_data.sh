@@ -577,6 +577,42 @@ StandardError=append:/var/log/scraper/mfa.log
 WantedBy=multi-user.target
 EOF
 
+# Scraper Digest Service (daily health digest email — replaces per-job failure emails)
+cat > /etc/systemd/system/scraper-digest.service << EOF
+[Unit]
+Description=ExpertelIQ2 Scraper Health Digest (daily email)
+After=network.target
+
+[Service]
+Type=oneshot
+User=scraper
+Group=scraper
+WorkingDirectory=$APP_DIR
+Environment=HOME=/home/scraper
+Environment=PYENV_ROOT=/opt/pyenv
+Environment=PATH=/opt/pyenv/shims:/opt/pyenv/bin:/home/scraper/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+ExecStart=/home/scraper/.local/bin/poetry run python manage.py send_scraper_digest
+StandardOutput=append:/var/log/scraper/digest.log
+StandardError=append:/var/log/scraper/digest.log
+# Notify on failure so a missing digest (heartbeat) is caught
+ExecStopPost=/bin/bash -c 'if [ "\$EXIT_STATUS" != "0" ]; then aws sns publish --topic-arn "$SNS_TOPIC_ARN" --message "Scraper digest failed with exit code \$EXIT_STATUS" --subject "Scraper Digest Error - $ENVIRONMENT" --region $AWS_REGION; fi'
+EOF
+
+# Scraper Digest Timer (instance TZ is ${timezone}; OnCalendar is local time)
+cat > /etc/systemd/system/scraper-digest.timer << EOF
+[Unit]
+Description=Run the scraper health digest daily (OnCalendar in instance local time, ${timezone})
+
+[Timer]
+# OnCalendar value comes from terraform var digest_timer_calendar (default noon)
+OnCalendar=${digest_timer_calendar}
+Persistent=true
+Unit=scraper-digest.service
+
+[Install]
+WantedBy=timers.target
+EOF
+
 # Create log directory
 mkdir -p /var/log/scraper
 chown scraper:scraper /var/log/scraper
@@ -590,6 +626,7 @@ systemctl daemon-reload
 systemctl enable vncserver
 systemctl enable websockify
 systemctl enable scraper.timer
+systemctl enable scraper-digest.timer
 systemctl enable mfa
 systemctl enable nginx
 
@@ -599,6 +636,7 @@ sleep 5
 systemctl start websockify
 systemctl start mfa
 systemctl start scraper.timer
+systemctl start scraper-digest.timer
 systemctl start nginx
 
 # =============================================================================
@@ -631,6 +669,12 @@ cat > /opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json << EOF
                         "file_path": "/var/log/scraper/mfa.log",
                         "log_group_name": "/experteliq2/scraper/$ENVIRONMENT",
                         "log_stream_name": "{instance_id}/mfa",
+                        "timezone": "Local"
+                    },
+                    {
+                        "file_path": "/var/log/scraper/digest.log",
+                        "log_group_name": "/experteliq2/scraper/$ENVIRONMENT",
+                        "log_stream_name": "{instance_id}/digest",
                         "timezone": "Local"
                     },
                     {

@@ -231,6 +231,7 @@ resource "aws_instance" "scraper" {
     screen_resolution      = var.screen_resolution
     timezone               = var.timezone
     scraper_timer_calendar = var.scraper_timer_calendar
+    digest_timer_calendar  = var.digest_timer_calendar
   }))
 
   tags = merge(var.tags, {
