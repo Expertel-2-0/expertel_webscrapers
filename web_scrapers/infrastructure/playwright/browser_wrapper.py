@@ -49,6 +49,16 @@ class PlaywrightWrapper(BrowserWrapper):
         except KeyError:
             raise ValueError(f"Invalid selector_type: {selector_type}")
 
+    def _wait_for(self, resolved: str, timeout: int, raw_selector: str, selector_type: str) -> str:
+        """Single choke point for element waits on action methods. Returns the
+        resolved selector the caller should act on. Base behavior is identical
+        to the previous inline page.wait_for_selector call; the self-healing
+        subclass overrides this to recover from selector breaks (see
+        web_scrapers/infrastructure/healing/).
+        """
+        self.page.wait_for_selector(resolved, timeout=timeout)
+        return resolved
+
     def goto(self, url: str, wait_until: str = "domcontentloaded") -> None:
         self.page.goto(url, wait_until=wait_until)
         self._post_action()
@@ -63,23 +73,23 @@ class PlaywrightWrapper(BrowserWrapper):
 
     def click_element(self, selector: str, timeout: int = 10000, selector_type: str = "xpath") -> None:
         resolved = self._resolve_selector(selector, selector_type)
-        self.page.wait_for_selector(resolved, timeout=timeout)
+        resolved = self._wait_for(resolved, timeout, selector, selector_type)
         self.page.click(resolved)
         self._post_action()
 
     def double_click_element(self, selector: str, timeout: int = 10000, selector_type: str = "xpath") -> None:
         resolved = self._resolve_selector(selector, selector_type)
-        self.page.wait_for_selector(resolved, timeout=timeout)
+        resolved = self._wait_for(resolved, timeout, selector, selector_type)
         self.page.dblclick(resolved)
 
     def type_text(self, selector: str, text: str, timeout: int = 10000, selector_type: str = "xpath") -> None:
         resolved = self._resolve_selector(selector, selector_type)
-        self.page.wait_for_selector(resolved, timeout=timeout)
+        resolved = self._wait_for(resolved, timeout, selector, selector_type)
         self.page.type(resolved, text)
 
     def clear_and_type(self, selector: str, text: str, timeout: int = 10000, selector_type: str = "xpath") -> None:
         resolved = self._resolve_selector(selector, selector_type)
-        self.page.wait_for_selector(resolved, timeout=timeout)
+        resolved = self._wait_for(resolved, timeout, selector, selector_type)
         locator = self.page.locator(resolved)
         locator.fill(text)
 
@@ -108,7 +118,7 @@ class PlaywrightWrapper(BrowserWrapper):
         bounding box (e.g. zero-size / off-screen).
         """
         resolved = self._resolve_selector(selector, selector_type)
-        self.page.wait_for_selector(resolved, timeout=timeout)
+        resolved = self._wait_for(resolved, timeout, selector, selector_type)
         locator = self.page.locator(resolved).first
         try:
             locator.scroll_into_view_if_needed(timeout=timeout)
@@ -151,7 +161,7 @@ class PlaywrightWrapper(BrowserWrapper):
         pauses), instead of page.type()'s zero-delay uniform burst.
         """
         resolved = self._resolve_selector(selector, selector_type)
-        self.page.wait_for_selector(resolved, timeout=timeout)
+        resolved = self._wait_for(resolved, timeout, selector, selector_type)
         # Click into the field like a person would, so focus + mouse activity register.
         self.human_click(selector, timeout=timeout, selector_type=selector_type)
         if clear_first:
@@ -171,29 +181,29 @@ class PlaywrightWrapper(BrowserWrapper):
         self, selector: str, option_text: str, timeout: int = 10000, selector_type: str = "xpath"
     ) -> None:
         resolved = self._resolve_selector(selector, selector_type)
-        self.page.wait_for_selector(resolved, timeout=timeout)
+        resolved = self._wait_for(resolved, timeout, selector, selector_type)
         self.page.select_option(resolved, label=option_text)
 
     def select_dropdown_by_value(
         self, selector: str, value: str, timeout: int = 10000, selector_type: str = "xpath"
     ) -> None:
         resolved = self._resolve_selector(selector, selector_type)
-        self.page.wait_for_selector(resolved, timeout=timeout)
+        resolved = self._wait_for(resolved, timeout, selector, selector_type)
         self.page.select_option(resolved, value=value)
 
     def get_text(self, selector: str, timeout: int = 10000, selector_type: str = "xpath") -> str:
         resolved = self._resolve_selector(selector, selector_type)
-        self.page.wait_for_selector(resolved, timeout=timeout)
+        resolved = self._wait_for(resolved, timeout, selector, selector_type)
         return self.page.text_content(resolved) or ""
 
     def get_attribute(self, selector: str, attribute: str, timeout: int = 10000, selector_type: str = "xpath") -> str:
         resolved = self._resolve_selector(selector, selector_type)
-        self.page.wait_for_selector(resolved, timeout=timeout)
+        resolved = self._wait_for(resolved, timeout, selector, selector_type)
         return self.page.get_attribute(resolved, attribute) or ""
 
     def wait_for_element(self, selector: str, timeout: int = 10000, selector_type: str = "xpath") -> None:
         resolved = self._resolve_selector(selector, selector_type)
-        self.page.wait_for_selector(resolved, timeout=timeout)
+        resolved = self._wait_for(resolved, timeout, selector, selector_type)
 
     def is_element_visible(self, selector: str, timeout: int = 5000, selector_type: str = "xpath") -> bool:
         try:
@@ -226,17 +236,17 @@ class PlaywrightWrapper(BrowserWrapper):
 
     def press_key(self, selector: str, key: str, timeout: int = 10000, selector_type: str = "xpath") -> None:
         resolved = self._resolve_selector(selector, selector_type)
-        self.page.wait_for_selector(resolved, timeout=timeout)
+        resolved = self._wait_for(resolved, timeout, selector, selector_type)
         self.page.press(resolved, key)
 
     def hover_element(self, selector: str, timeout: int = 10000, selector_type: str = "xpath") -> None:
         resolved = self._resolve_selector(selector, selector_type)
-        self.page.wait_for_selector(resolved, timeout=timeout)
+        resolved = self._wait_for(resolved, timeout, selector, selector_type)
         self.page.hover(resolved)
 
     def scroll_to_element(self, selector: str, timeout: int = 10000, selector_type: str = "xpath") -> None:
         resolved = self._resolve_selector(selector, selector_type)
-        self.page.wait_for_selector(resolved, timeout=timeout)
+        resolved = self._wait_for(resolved, timeout, selector, selector_type)
         self.page.locator(resolved).scroll_into_view_if_needed()
 
     def get_page_title(self) -> str:

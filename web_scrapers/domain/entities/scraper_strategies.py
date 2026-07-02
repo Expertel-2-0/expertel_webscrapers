@@ -73,6 +73,17 @@ class ScraperBaseStrategy(ABC):
         os.makedirs(job_dir, exist_ok=True)
         self.job_downloads_dir = job_dir
         self.logger.info(f"Prepared download directory: {job_dir}")
+
+        # Give the self-healing wrapper (when enabled) the per-job context it
+        # needs: carrier from the strategy's module path (scrapers/<carrier>/...),
+        # strategy class name, and where to drop failure evidence. hasattr-guarded
+        # so the plain PlaywrightWrapper is unaffected.
+        if hasattr(self.browser_wrapper, "set_healing_context"):
+            module_parts = self.__class__.__module__.split(".")
+            carrier = module_parts[-2] if len(module_parts) >= 2 else ""
+            self.browser_wrapper.set_healing_context(
+                carrier=carrier, strategy=self.__class__.__name__, job_dir=job_dir
+            )
         return job_dir
 
     def _cleanup_job_directory(self) -> None:
