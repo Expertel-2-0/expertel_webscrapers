@@ -71,6 +71,7 @@ class TelusFileSlug(str, Enum):
     INDIVIDUAL_DETAIL = "individual_detail"
     MOBILITY_DEVICE = "mobility_device"
     GROUP_SUMMARY = "group_summary"
+    AIRTIME_DETAIL = "airtime_detail"
 
 
 class VerizonFileSlug(str, Enum):
@@ -79,6 +80,7 @@ class VerizonFileSlug(str, Enum):
     DEVICE_REPORT = "device_report"
     SUSPENDED_WIRELESS_NUMBERS = "suspended_wireless_numbers"
     ACTIVATION_AND_DEACTIVATION = "activation_and_deactivation"
+    WIRELESS_USAGE_DETAIL = "wireless_usage_detail"
 
 
 class ATTFileSlug(str, Enum):
