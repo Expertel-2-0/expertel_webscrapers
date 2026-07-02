@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="en">
+<head><title>My Business Portal - Billing</title></head>
+<body>
+  <header><nav><ul><li><a href="#">Home</a></li><li><a href="#">Billing</a></li></ul></nav></header>
+  <main>
+    <section>
+      <h1>Billing &amp; Statements</h1>
+      <p>Account 555-0100 · Cycle Jun 1 – Jun 30</p>
+    </section>
+    <section class="statements">
+      <h2>Available statements</h2>
+      <table>
+        <tr><td>June 2026</td><td>$4,182.55</td></tr>
+        <tr><td>May 2026</td><td>$4,097.10</td></tr>
+      </table>
+      <!-- Simulates a carrier redesign: the download button was moved out of
+           the old div[3]/button[1] position and given a new container. -->
+      <div class="actions-toolbar">
+        <button id="download-all-statements" aria-label="Download all statements"
+                onclick="document.getElementById('click-result').textContent='downloaded'">
+          Download all
+        </button>
+        <button id="cancel-service" aria-label="Cancel service">Cancel service</button>
+      </div>
+      <div id="click-result"></div>
+    </section>
+  </main>
+</body>
+</html>

@@ -18,7 +18,8 @@ from web_scrapers.infrastructure.playwright.auth_strategies import (
     VerizonAuthStrategy,
 )
 from web_scrapers.infrastructure.playwright.browser_factory import BrowserManager
-from web_scrapers.infrastructure.playwright.browser_wrapper import BrowserWrapper, PlaywrightWrapper
+from web_scrapers.infrastructure.healing.factory import build_browser_wrapper
+from web_scrapers.infrastructure.playwright.browser_wrapper import BrowserWrapper
 
 
 class SessionManager:
@@ -212,7 +213,7 @@ class SessionManager:
                 self._page = self._context.new_page()
                 Stealth().apply_stealth_sync(self._page)  # Aplicar stealth a la pagina
 
-            self._browser_wrapper = PlaywrightWrapper(self._page)
+            self._browser_wrapper = build_browser_wrapper(self._page)
 
         return self._browser_wrapper
 
@@ -221,7 +222,7 @@ class SessionManager:
             self._page = self._context.new_page()
             if not self._use_cdp:
                 Stealth().apply_stealth_sync(self._page)
-            self._browser_wrapper = PlaywrightWrapper(self._page)
+            self._browser_wrapper = build_browser_wrapper(self._page)
         return self._browser_wrapper
 
     def get_browser_wrapper(self) -> Optional[BrowserWrapper]:
@@ -368,7 +369,7 @@ class SessionManager:
             self._page = self._context.new_page()
             if not self._use_cdp:
                 Stealth().apply_stealth_sync(self._page)
-            self._browser_wrapper = PlaywrightWrapper(self._page)
+            self._browser_wrapper = build_browser_wrapper(self._page)
 
     def __enter__(self):
         return self
