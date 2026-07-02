@@ -320,20 +320,45 @@ class MonthlyReportsScraperStrategy(ScraperBaseStrategy):
             # those files intentionally (they were uploaded in a prior run). Counting them as
             # "failed to download" would produce false-negative job results.
             all_cycle_files: list[BillingCycleFile] = billing_cycle.billing_cycle_files or []
-            already_with_s3 = sum(1 for f in all_cycle_files if f.s3_key)
+
+            # Only REQUIRED reports count toward failure. Some CarrierReport rows are optional
+            # (required=False) because a portal doesn't reliably offer them yet (e.g. Bell "dtl",
+            # Telus "airtime_detail", Verizon "wireless_usage_detail") — the scraper deliberately
+            # doesn't fetch them. A missing optional report is expected, not an error.
+            # required is nullable in the DB; treat None the same as False (optional).
+            required_cycle_files = [f for f in all_cycle_files if f.carrier_report and f.carrier_report.required]
+            optional_cycle_files = [f for f in all_cycle_files if not (f.carrier_report and f.carrier_report.required)]
+
+            already_with_s3 = sum(1 for f in required_cycle_files if f.s3_key)
 
             downloaded_files = self._download_files(files_section, config, billing_cycle)
 
-            # Calculate expected files from billing_cycle
-            expected_files_count = len(all_cycle_files)
+            # Calculate expected files from billing_cycle (required only)
+            expected_files_count = len(required_cycle_files)
             downloaded_count = len(downloaded_files)
+            required_downloaded_count = sum(
+                1
+                for f in downloaded_files
+                if f.billing_cycle_file
+                and f.billing_cycle_file.carrier_report
+                and f.billing_cycle_file.carrier_report.required
+            )
             # A file may be counted twice: already in S3 from a prior run AND re-downloaded
             # this run (e.g. Rogers always re-fetches the BCR even when it already exists).
             # Cap at the expected total so double-counting can't push failures negative.
-            effective_count = min(expected_files_count, downloaded_count + already_with_s3)
+            effective_count = min(expected_files_count, required_downloaded_count + already_with_s3)
+
+            optional_missing = [
+                f.carrier_report.slug or f.carrier_report.name
+                for f in optional_cycle_files
+                if not f.s3_key
+                and not any(d.billing_cycle_file and d.billing_cycle_file.id == f.id for d in downloaded_files)
+            ]
+            if optional_missing:
+                self.logger.info(f"Optional report(s) not available this cycle: {', '.join(optional_missing)}")
 
             self.logger.info(
-                f"Download phase complete: {downloaded_count}/{expected_files_count} files downloaded"
+                f"Download phase complete: {downloaded_count}/{expected_files_count} required files downloaded"
                 f" ({already_with_s3} already in S3 from prior run)"
             )
 
@@ -342,14 +367,19 @@ class MonthlyReportsScraperStrategy(ScraperBaseStrategy):
 
             # Step 4: Determine final success based on download and upload results.
             # Files that were already in S3 (skipped by the scraper) are not failures.
-            download_failures = expected_files_count - effective_count
+            # Only required files contribute to download_failures; missing optional files never do.
+            download_failures = max(0, expected_files_count - effective_count)
             upload_failures = upload_tracking["failed_uploads"]
             total_failures = download_failures + upload_failures
 
             # Build detailed result message
             if total_failures == 0:
-                # Perfect success: all files downloaded (or already in S3) and uploaded
-                message = f"SUCCESS: All {expected_files_count} files downloaded and uploaded"
+                # Perfect success: all required files downloaded (or already in S3) and uploaded
+                optional_note = f" (plus {len(optional_cycle_files)} optional)" if optional_cycle_files else ""
+                message = (
+                    f"SUCCESS: {expected_files_count}/{expected_files_count} required files"
+                    f"{optional_note} downloaded and uploaded"
+                )
                 self.logger.info(message)
                 self._cleanup_job_directory()
                 return ScraperResult(True, message, self._create_file_mapping(upload_tracking["uploaded_files"]))
@@ -358,7 +388,7 @@ class MonthlyReportsScraperStrategy(ScraperBaseStrategy):
                 error_parts = []
 
                 if download_failures > 0:
-                    error_parts.append(f"{download_failures} file(s) failed to download")
+                    error_parts.append(f"{download_failures} required file(s) failed to download")
 
                 if upload_failures > 0:
                     error_parts.append(f"{upload_failures} file(s) failed to upload")
@@ -367,7 +397,7 @@ class MonthlyReportsScraperStrategy(ScraperBaseStrategy):
                         self.logger.error(f"Upload failure: {failed['file'].file_name} - {failed['reason']}")
 
                 error_message = f"ERROR: {', '.join(error_parts)}. "
-                error_message += f"Expected: {expected_files_count}, "
+                error_message += f"Expected: {expected_files_count} required, "
                 error_message += f"Downloaded: {downloaded_count}, "
                 error_message += f"Uploaded: {upload_tracking['successful_uploads']}"
 
