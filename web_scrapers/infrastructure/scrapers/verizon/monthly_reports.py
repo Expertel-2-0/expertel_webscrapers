@@ -24,6 +24,11 @@ class VerizonMonthlyReportsScraperStrategy(MonthlyReportsScraperStrategy):
     - Device Report (individual)
     - Activation & Deactivation Report (individual)
     - Suspended Wireless Numbers Report (individual)
+
+    The Raw Data Download ZIP may also contain a "Wireless Usage Detail" file
+    (slug wireless_usage_detail). It is mapped opportunistically the same way as
+    the other two ZIP entries; it's optional, upload only happens when a matching
+    BillingCycleFile exists for the account.
     """
 
     def __init__(self, browser_wrapper: BrowserWrapper, job_id: int):
@@ -241,6 +246,8 @@ class VerizonMonthlyReportsScraperStrategy(MonthlyReportsScraperStrategy):
             "account_wireless_summary": VerizonFileSlug.ACCOUNT_AND_WIRELESS.value,
             "acct & wireless charges detail": VerizonFileSlug.WIRELESS_CHARGES_DETAIL.value,
             "wireless_charges_detail": VerizonFileSlug.WIRELESS_CHARGES_DETAIL.value,
+            "wireless usage detail": VerizonFileSlug.WIRELESS_USAGE_DETAIL.value,
+            "wireless_usage_detail": VerizonFileSlug.WIRELESS_USAGE_DETAIL.value,
         }
 
         for pattern, slug in zip_pattern_to_slug.items():

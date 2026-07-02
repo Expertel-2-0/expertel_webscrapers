@@ -444,17 +444,26 @@ class TelusMonthlyReportsScraperStrategy(MonthlyReportsScraperStrategy):
     def _find_matching_billing_cycle_file(self, filename: str, file_map: dict) -> Optional[Any]:
         """
         Finds BillingCycleFile matching the filename.
-        NOTE: Only maps ZIP files (individual_detail, group_summary).
+        NOTE: Only maps ZIP files (individual_detail, group_summary, airtime_detail).
         mobility_device comes from individual reports (Part 2).
+
+        airtime_detail: the ZIP downloaded here is the full "text-bill" e-bill bundle
+        (see _download_files Part 1 / _click_month_and_download_zip), not a curated
+        2-file report, so an "Airtime_Detail_MM_YYYY.txt" file may already be present.
+        This mapping is opportunistic - harmless no-op if absent. NEEDS LIVE
+        VERIFICATION against a real Telus e-bill download; see PR description.
         """
         filename_lower = filename.lower()
 
-        # Mapping of ZIP filename patterns to Telus slugs
-        # Only 2 slugs from ZIP: individual_detail, group_summary
+        # Mapping of ZIP filename patterns to Telus slugs.
+        # group_summary, individual_detail are confirmed present.
+        # airtime_detail is unconfirmed - added defensively, see docstring above.
         # mobility_device is obtained from Part 2 (individual reports)
         pattern_to_slug = {
             "group_summary": TelusFileSlug.GROUP_SUMMARY.value,
             "individual_detail": TelusFileSlug.INDIVIDUAL_DETAIL.value,
+            "airtime_detail": TelusFileSlug.AIRTIME_DETAIL.value,
+            "airtime detail": TelusFileSlug.AIRTIME_DETAIL.value,
         }
 
         for pattern, slug in pattern_to_slug.items():
